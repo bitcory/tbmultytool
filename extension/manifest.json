@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "TB MULTY TOOL Companion",
+  "version": "0.1.0",
+  "description": "ChatGPT·Google Flow에서 만든 이미지를 TB MULTY TOOL 앱으로 가져옵니다 (로컬 전용).",
+  "permissions": ["storage", "contextMenus"],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://*.oaiusercontent.com/*",
+    "https://labs.google/*",
+    "https://*.googleusercontent.com/*",
+    "https://*.usercontent.google.com/*",
+    "https://*.gstatic.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://labs.google/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": { "default_popup": "popup.html", "default_title": "TB MULTY TOOL Companion" }
+}

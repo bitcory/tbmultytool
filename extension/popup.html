@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        width: 260px;
+        margin: 0;
+        padding: 14px;
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #181b22;
+        color: #e6e9ef;
+      }
+      h1 { font-size: 14px; margin: 0 0 10px; }
+      .status { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 10px; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #ff5d6c; }
+      .dot.on { background: #3ecf8e; }
+      p { font-size: 12px; color: #9aa3b2; line-height: 1.5; margin: 8px 0 0; }
+      code { background: #20242d; padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>TB MULTY TOOL Companion</h1>
+    <div class="status"><span id="dot" class="dot"></span><span id="label">앱 확인 중…</span></div>
+    <p>
+      ChatGPT 또는 Google Flow에서 이미지를 만든 뒤, 이미지 위의
+      <b>“📥 앱으로 보내기”</b> 버튼을 누르면 앱 갤러리로 들어갑니다.
+    </p>
+    <p>연결이 안 되면 <code>TB MULTY TOOL</code> 앱이 실행 중인지 확인하세요.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

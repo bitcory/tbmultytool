@@ -1,0 +1,77 @@
+import { useEffect, useState } from 'react'
+import { MessageSquare, Clapperboard, Video, Music, FolderOpen, type LucideIcon } from 'lucide-react'
+import { useStore } from '../store'
+import type { BridgeInfo, ImageSource } from '@shared/types'
+
+const SOURCES: { id: ImageSource; label: string; url: string; Icon: LucideIcon }[] = [
+  { id: 'chatgpt', label: 'ChatGPT', url: 'https://chatgpt.com/', Icon: MessageSquare },
+  { id: 'flow', label: 'Google Flow', url: 'https://labs.google/fx/ko/tools/flow', Icon: Clapperboard },
+  { id: 'grok', label: 'Grok', url: 'https://grok.com/', Icon: Video },
+  { id: 'suno', label: 'SUNO', url: 'https://suno.com/create', Icon: Music }
+]
+
+export default function Gallery() {
+  const { setImages, addImage } = useStore()
+  const [info, setInfo] = useState<BridgeInfo | null>(null)
+
+  useEffect(() => {
+    window.electronAPI.bridge.getInfo().then(setInfo)
+    window.electronAPI.bridge.list().then(setImages)
+    const off = window.electronAPI.bridge.onImported((img) => addImage(img))
+    return off
+  }, [])
+
+  return (
+    <div>
+      <h1 className="h1">설정</h1>
+      <p className="sub">ChatGPT·Flow·Grok·SUNO에 로그인해 두면, 생성 기능이 백그라운드에서 자동 동작합니다. (결과는 갤러리에서 확인)</p>
+
+      {/* 소스 로그인 / 열기 */}
+      <div className="card">
+        <label style={{ marginBottom: 10, display: 'block' }}>① 사이트 로그인 (먼저 여기서 로그인해 두세요)</label>
+        <div className="row">
+          {SOURCES.map((s) => {
+            const Icon = s.Icon
+            return (
+              <button
+                key={s.id}
+                className="btn secondary"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => window.electronAPI.fs.openWindow(s.url, s.label)}
+              >
+                <Icon size={16} /> {s.label} 열기
+              </button>
+            )
+          })}
+        </div>
+        <p className="hint">
+          각 사이트를 한 번 열어 <b>로그인</b>해 두면 세션이 유지됩니다. 그래야 “이미지 생성기”·“멀티 영상 만들기”의
+          <b> 이미지(ChatGPT·Flow)·영상(Grok)·음악(SUNO)</b> 생성이 백그라운드에서 자동으로 동작합니다.
+          사이트에서 직접 만든 이미지는 <b>“📥 앱으로 보내기”</b>로도 가져올 수 있어요.
+        </p>
+      </div>
+
+      {/* 연결 상태 */}
+      <div className="card">
+        <div className="statuschip">
+          <span className={`dot ${info?.running ? 'on' : 'off'}`} />
+          {info?.running ? (
+            <span>
+              확장 수신 대기 중 — <code>http://127.0.0.1:{info.port}</code>
+            </span>
+          ) : (
+            <span>수신 서버가 꺼져 있습니다</span>
+          )}
+        </div>
+        {info && (
+          <p className="hint">
+            저장 폴더: <code>{info.dir}</code>{' '}
+            <button className="btn ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => window.electronAPI.fs.openPath(info.dir)}>
+              <FolderOpen size={14} /> 폴더 열기
+            </button>
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}

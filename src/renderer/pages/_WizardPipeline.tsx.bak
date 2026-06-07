@@ -1,0 +1,353 @@
+import { useEffect, useState } from 'react'
+import { useStore, type Step } from '../store'
+import type { AspectRatio, ImageProvider, ScriptProvider, TtsProvider } from '@shared/types'
+
+const STEP_LABELS = ['준비', '대본', '자산 생성', '렌더링']
+const OPENAI_VOICES = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+
+export default function Wizard() {
+  const s = useStore()
+
+  // 렌더링 진행 로그 구독
+  useEffect(() => {
+    return window.electronAPI.onProgress((e) => {
+      s.addLog(`${e.message}${e.total ? ` (${e.current}/${e.total})` : ''}`)
+      if (e.error) s.addLog(`⚠ ${e.error}`)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <div>
+      <h1 className="h1">새 영상 만들기</h1>
+      <p className="sub">주제 → AI 대본 → 음성·이미지 → 영상 합성</p>
+
+      <div className="steps">
+        {STEP_LABELS.map((label, i) => (
+          <div key={i} className={`pill ${s.step === i ? 'active' : ''} ${s.step > i ? 'done' : ''}`}>
+            {s.step > i ? '✓ ' : `${i + 1}. `}{label}
+          </div>
+        ))}
+      </div>
+
+      {s.step === 0 && <StepPrepare />}
+      {s.step === 1 && <StepScript />}
+      {s.step === 2 && <StepAssets />}
+      {s.step === 3 && <StepRender />}
+    </div>
+  )
+}
+
+/* ---------- Step 0: 준비 ---------- */
+function StepPrepare() {
+  const { options, setOptions, outDir, setOutDir, setScenes, setTitle, setStep, setBusy, busy, addLog } = useStore()
+
+  async function pickDir(): Promise<void> {
+    const d = await window.electronAPI.fs.selectOutputDir()
+    if (d) setOutDir(d)
+  }
+
+  async function generate(): Promise<void> {
+    if (!options.topic.trim()) return alert('주제를 입력하세요.')
+    if (!outDir) return alert('출력 폴더를 선택하세요.')
+    setBusy(true)
+    addLog('대본 생성 중...')
+    try {
+      const scenes = await window.electronAPI.generate.script(options)
+      setScenes(scenes)
+      setTitle(options.topic.slice(0, 40))
+      addLog(`대본 생성 완료 — 씬 ${scenes.length}개`)
+      setStep(1 as Step)
+    } catch (err: any) {
+      alert('대본 생성 실패: ' + err.message)
+      addLog('⚠ ' + err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="field">
+        <label>주제 *</label>
+        <textarea
+          placeholder="영상에서 다룰 내용을 입력하세요 (예: 복리의 마법, 일상 속 양자역학...)"
+          value={options.topic}
+          onChange={(e) => setOptions({ topic: e.target.value })}
+        />
+      </div>
+
+      <div className="row">
+        <div className="field">
+          <label>채널명 (선택)</label>
+          <input value={options.channelName} onChange={(e) => setOptions({ channelName: e.target.value })} />
+        </div>
+        <div className="field">
+          <label>언어</label>
+          <select value={options.language} onChange={(e) => setOptions({ language: e.target.value })}>
+            <option value="ko">한국어</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>화면비</label>
+          <select value={options.aspect} onChange={(e) => setOptions({ aspect: e.target.value as AspectRatio })}>
+            <option value="16:9">가로 16:9</option>
+            <option value="9:16">세로 9:16</option>
+            <option value="1:1">정사각형 1:1</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>씬 개수</label>
+          <input
+            type="number"
+            min={2}
+            max={20}
+            value={options.sceneCount}
+            onChange={(e) => setOptions({ sceneCount: Math.max(2, Math.min(20, +e.target.value)) })}
+          />
+        </div>
+      </div>
+
+      <div className="row">
+        <div className="field">
+          <label>대본 AI</label>
+          <select value={options.scriptProvider} onChange={(e) => setOptions({ scriptProvider: e.target.value as ScriptProvider })}>
+            <option value="anthropic">Claude</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>음성(TTS)</label>
+          <select value={options.ttsProvider} onChange={(e) => setOptions({ ttsProvider: e.target.value as TtsProvider, ttsVoice: e.target.value === 'openai' ? 'alloy' : '' })}>
+            <option value="openai">OpenAI TTS</option>
+            <option value="elevenlabs">ElevenLabs</option>
+          </select>
+        </div>
+        <div className="field">
+          <label>음성 종류</label>
+          {options.ttsProvider === 'openai' ? (
+            <select value={options.ttsVoice} onChange={(e) => setOptions({ ttsVoice: e.target.value })}>
+              {OPENAI_VOICES.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          ) : (
+            <input placeholder="ElevenLabs Voice ID" value={options.ttsVoice} onChange={(e) => setOptions({ ttsVoice: e.target.value })} />
+          )}
+        </div>
+        <div className="field">
+          <label>이미지 생성</label>
+          <select value={options.imageProvider} onChange={(e) => setOptions({ imageProvider: e.target.value as ImageProvider })}>
+            <option value="fal">fal.ai (FLUX)</option>
+            <option value="openai">OpenAI (gpt-image-1)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>이미지 스타일 (영문, 모든 씬에 적용)</label>
+        <input value={options.imageStyle} onChange={(e) => setOptions({ imageStyle: e.target.value })} />
+      </div>
+
+      <div className="field">
+        <label>출력 폴더 *</label>
+        <div className="row" style={{ alignItems: 'center' }}>
+          <input readOnly style={{ flex: 1 }} value={outDir ?? ''} placeholder="폴더를 선택하세요" />
+          <button className="btn secondary" onClick={pickDir}>폴더 선택</button>
+        </div>
+      </div>
+
+      <div className="actions">
+        <span />
+        <button className="btn" disabled={busy} onClick={generate}>
+          {busy ? '생성 중...' : '대본 생성 →'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Step 1: 대본 ---------- */
+function StepScript() {
+  const { scenes, updateScene, setStep } = useStore()
+  return (
+    <div>
+      <div className="card">
+        <p className="hint">각 씬의 나레이션과 이미지 프롬프트를 검토·수정할 수 있습니다.</p>
+        {scenes.map((sc) => (
+          <div key={sc.id} style={{ marginBottom: 18 }}>
+            <div className="idx" style={{ marginBottom: 6 }}>씬 {sc.index + 1}</div>
+            <div className="field">
+              <label>나레이션 (자막)</label>
+              <textarea value={sc.narration} onChange={(e) => updateScene(sc.id, { narration: e.target.value })} />
+            </div>
+            <div className="field">
+              <label>이미지 프롬프트 (영문)</label>
+              <textarea value={sc.imagePrompt} onChange={(e) => updateScene(sc.id, { imagePrompt: e.target.value })} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="actions">
+        <button className="btn secondary" onClick={() => setStep(0 as Step)}>← 이전</button>
+        <button className="btn" onClick={() => setStep(2 as Step)}>자산 생성 →</button>
+      </div>
+    </div>
+  )
+}
+
+/* 로컬 이미지 썸네일 (data URL 로드) */
+function SceneThumb({ path }: { path?: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    let active = true
+    if (path) {
+      window.electronAPI.fs
+        .readImage(path)
+        .then((u) => active && setUrl(u))
+        .catch(() => active && setUrl(null))
+    } else setUrl(null)
+    return () => {
+      active = false
+    }
+  }, [path])
+  return (
+    <div className="thumb">
+      {url ? (
+        <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }} />
+      ) : path ? (
+        '로딩…'
+      ) : (
+        '대기'
+      )}
+    </div>
+  )
+}
+
+/* ---------- Step 2: 자산 생성 ---------- */
+function StepAssets() {
+  const { scenes, options, outDir, updateScene, setStep, busy, setBusy, addLog } = useStore()
+
+  const allReady = scenes.length > 0 && scenes.every((s) => s.imagePath && s.audioPath)
+
+  async function importImage(sceneId: string): Promise<void> {
+    const p = await window.electronAPI.fs.pickImage()
+    if (p) updateScene(sceneId, { imagePath: p })
+  }
+
+  async function generateAll(): Promise<void> {
+    if (!outDir) return
+    setBusy(true)
+    try {
+      for (const sc of scenes) {
+        if (!sc.imagePath) {
+          addLog(`씬 ${sc.index + 1} 이미지 생성...`)
+          const imagePath = await window.electronAPI.generate.image(sc, options, outDir)
+          updateScene(sc.id, { imagePath })
+        }
+        if (!sc.audioPath) {
+          addLog(`씬 ${sc.index + 1} 음성 생성...`)
+          const { path, durationSec } = await window.electronAPI.generate.tts(sc, options, outDir)
+          updateScene(sc.id, { audioPath: path, durationSec })
+        }
+      }
+      addLog('모든 자산 생성 완료')
+    } catch (err: any) {
+      alert('자산 생성 실패: ' + err.message)
+      addLog('⚠ ' + err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="card">
+        <div className="actions" style={{ marginTop: 0, marginBottom: 14 }}>
+          <span className="hint">씬별로 이미지와 음성을 생성합니다. (실패 시 다시 누르면 미완성분만 재생성)</span>
+          <button className="btn" disabled={busy} onClick={generateAll}>
+            {busy ? '생성 중...' : allReady ? '다시 생성' : '전체 생성'}
+          </button>
+        </div>
+        {scenes.map((sc) => (
+          <div className="scene" key={sc.id}>
+            <SceneThumb path={sc.imagePath} />
+            <div className="body">
+              <div className="idx">씬 {sc.index + 1}{sc.durationSec ? ` · ${sc.durationSec.toFixed(1)}초` : ''}</div>
+              <div>{sc.narration}</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className={`badge ${sc.imagePath ? 'ok' : 'no'}`}>{sc.imagePath ? '이미지 ✓' : '이미지 ✗'}</span>
+                <span className={`badge ${sc.audioPath ? 'ok' : 'no'}`}>{sc.audioPath ? '음성 ✓' : '음성 ✗'}</span>
+                <button className="btn ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => importImage(sc.id)}>
+                  Flow 이미지 가져오기
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="actions">
+        <button className="btn secondary" onClick={() => setStep(1 as Step)}>← 이전</button>
+        <button className="btn" disabled={!allReady || busy} onClick={() => setStep(3 as Step)}>영상 렌더 →</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Step 3: 렌더링 ---------- */
+function StepRender() {
+  const { scenes, options, title, outDir, videoPath, setVideoPath, busy, setBusy, log, addLog, setStep, reset, setView } = useStore()
+
+  async function render(): Promise<void> {
+    if (!outDir) return
+    setBusy(true)
+    addLog('렌더링 시작...')
+    try {
+      const project = {
+        id: 'p_' + Date.now(),
+        title,
+        options,
+        scenes,
+        createdAt: new Date().toISOString()
+      }
+      const out = await window.electronAPI.generate.render(project, outDir)
+      setVideoPath(out)
+      addLog('🎉 렌더링 완료: ' + out)
+    } catch (err: any) {
+      alert('렌더링 실패: ' + err.message)
+      addLog('⚠ ' + err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="card">
+        {!videoPath ? (
+          <>
+            <p className="hint">씬 {scenes.length}개를 정지영상+자막 클립으로 만들어 하나의 영상으로 합칩니다.</p>
+            <button className="btn" disabled={busy} onClick={render}>{busy ? '렌더링 중...' : '렌더링 시작'}</button>
+          </>
+        ) : (
+          <>
+            <div className="statuschip" style={{ marginBottom: 12 }}>
+              <span className="dot on" /> 렌더링 완료
+            </div>
+            <div className="actions" style={{ justifyContent: 'flex-start', gap: 10 }}>
+              <button className="btn" onClick={() => window.electronAPI.fs.openPath(videoPath)}>▶ 영상 열기</button>
+              <button className="btn secondary" onClick={() => outDir && window.electronAPI.fs.openPath(outDir)}>📁 폴더 열기</button>
+            </div>
+            <div className="hint" style={{ marginTop: 10 }}>{videoPath}</div>
+          </>
+        )}
+        <div className="log" style={{ marginTop: 16 }}>{log.join('\n') || '로그가 여기 표시됩니다.'}</div>
+      </div>
+      <div className="actions">
+        <button className="btn secondary" onClick={() => setStep(2 as Step)}>← 이전</button>
+        <button className="btn ghost" onClick={() => { reset(); setView('wizard') }}>새 프로젝트</button>
+      </div>
+    </div>
+  )
+}
