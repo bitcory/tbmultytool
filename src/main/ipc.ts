@@ -107,9 +107,15 @@ function sourceForUrl(url: string): ImageSource {
   return 'chatgpt'
 }
 
-// Electron/앱 식별자를 제거한 깨끗한 Chrome UA (Google Flow 등 자동화 탐지/크래시 회피)
+// Electron/앱 식별자를 제거한 깨끗한 Chrome UA (Google Flow 등 자동화 탐지/크래시 회피).
+// 버전·플랫폼을 실제값과 일치시킨다 — 윈도우에서 Mac UA를 보내면(플랫폼 거짓말) 봇 탐지에 걸린다.
+const CHROME_FULL = process.versions.chrome || '130.0.0.0'
 const CLEAN_UA =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.191 Safari/537.36'
+  process.platform === 'win32'
+    ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
+    : process.platform === 'darwin'
+      ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
+      : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
 
 // 렌더러(메인 창)로 진행 상황 전달 — 임베드 창이 아닌 창들에 보냄
 function emitProgress(message: string): void {

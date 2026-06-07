@@ -43,6 +43,15 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // 개발 모드에서도 dock 아이콘을 새 아이콘으로 (패키지 빌드는 build/icon 사용)
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      app.dock.setIcon(path.join(__dirname, '../../build/icon.png'))
+    } catch {
+      /* 아이콘 경로 없으면 무시 */
+    }
+  }
+
   registerIpc()
   createWindow()
 
