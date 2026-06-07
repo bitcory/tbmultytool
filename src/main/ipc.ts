@@ -109,14 +109,16 @@ function sourceForUrl(url: string): ImageSource {
 
 // Electron/앱 식별자를 제거한 깨끗한 Chrome UA (Google Flow 등 자동화 탐지/크래시 회피).
 // 실행 OS에 맞춘 데스크톱 Chrome UA — 윈도우에서 맥 UA가 나가면 탐지 위험이 커진다.
-const CHROME_VER = '131.0.0.0'
-const CHROME_MAJOR = '131'
+// 버전은 반드시 실제 내장 Chromium 과 일치시킨다 — UA 문자열·Sec-CH-UA·userAgentData 가
+// 서로 다른 버전을 말하면(예: UA 131 / brands 130) 봇 탐지에 걸린다.
+const CHROME_FULL = process.versions.chrome || '130.0.0.0'
+const CHROME_MAJOR = CHROME_FULL.split('.')[0]
 const CLEAN_UA =
   process.platform === 'win32'
-    ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`
+    ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
     : process.platform === 'darwin'
-      ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`
-      : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`
+      ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
+      : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
 
 const EMBED_PARTITION = 'persist:embedded'
 
@@ -132,7 +134,8 @@ function configureEmbedSession(): void {
   sess.setUserAgent(CLEAN_UA)
   // HTTP 헤더 단의 client hints 정리 — Electron 브랜드 제거 + 플랫폼을 실제 OS 와 일치.
   // (UA 문자열만 바꾸면 Sec-CH-UA 에 Electron 이 남아 봇 탐지에 걸린다)
-  const cleanUaList = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not_A Brand";v="24"`
+  // 진짜 크롬처럼 "Google Chrome" 브랜드를 포함하고, 버전은 실제 Chromium 과 동일하게.
+  const cleanUaList = `"Chromium";v="${CHROME_MAJOR}", "Google Chrome";v="${CHROME_MAJOR}", "Not?A_Brand";v="99"`
   sess.webRequest.onBeforeSendHeaders((details, cb) => {
     const h = details.requestHeaders
     for (const k of Object.keys(h)) {
@@ -195,7 +198,9 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
     autoHideMenuBar: true,
     webPreferences: {
       partition: 'persist:embedded',
-      contextIsolation: true,
+      // contextIsolation:false 로 preload 가 main world 에서 navigator.userAgentData 를
+      // 페이지 스크립트보다 먼저 위장한다. nodeIntegration:false 라 페이지엔 Node 노출 없음.
+      contextIsolation: false,
       nodeIntegration: false,
       sandbox: false, // preload(embed.js)가 모듈을 로드하려면 필요
       backgroundThrottling: false, // 숨김 창에서도 자동화 타이머가 느려지지 않게
@@ -247,7 +252,7 @@ function spawnBatchWindow(url: string, title: string): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       partition: 'persist:embedded',
-      contextIsolation: true,
+      contextIsolation: false, // navigator 위장 preload 를 main world 에서 실행 (위 openEmbedded 참고)
       nodeIntegration: false,
       sandbox: false,
       backgroundThrottling: false,
