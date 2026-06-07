@@ -1,4 +1,4 @@
-import { dialog, ipcMain, shell, BrowserWindow, session } from 'electron'
+import { dialog, ipcMain, shell, BrowserWindow } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
 import os from 'os'
@@ -20,16 +20,7 @@ import { generateScript } from './services/script'
 import { generateImage } from './services/image'
 import { generateTts } from './services/tts'
 import { renderVideo } from './services/render'
-import {
-  getBridgeInfo,
-  listImported,
-  clearImported,
-  removeImported,
-  importImage,
-  setDebugEval,
-  enqueueJob,
-  setJobStatusListener
-} from './imageBridge'
+import { getBridgeInfo, listImported, clearImported, removeImported, importImage, setDebugEval } from './imageBridge'
 import { grabberScript } from './injectGrabber'
 import { chatgptGenerateScript } from './automateChatgpt'
 import { grokVideoScript } from './automateGrok'
@@ -116,67 +107,9 @@ function sourceForUrl(url: string): ImageSource {
   return 'chatgpt'
 }
 
-// Electron/앱 식별자를 제거한 깨끗한 Chrome UA (Google Flow 등 자동화 탐지/크래시 회피).
-// 실행 OS에 맞춘 데스크톱 Chrome UA — 윈도우에서 맥 UA가 나가면 탐지 위험이 커진다.
-// 버전은 반드시 실제 내장 Chromium 과 일치시킨다 — UA 문자열·Sec-CH-UA·userAgentData 가
-// 서로 다른 버전을 말하면(예: UA 131 / brands 130) 봇 탐지에 걸린다.
-const CHROME_FULL = process.versions.chrome || '130.0.0.0'
-const CHROME_MAJOR = CHROME_FULL.split('.')[0]
+// Electron/앱 식별자를 제거한 깨끗한 Chrome UA (Google Flow 등 자동화 탐지/크래시 회피)
 const CLEAN_UA =
-  process.platform === 'win32'
-    ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
-    : process.platform === 'darwin'
-      ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
-      : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36`
-
-const EMBED_PARTITION = 'persist:embedded'
-
-// 임베드 세션 전체에 깨끗한 UA 적용 — 팝업/리다이렉트까지 모두 덮어 Electron UA 노출 방지.
-// (per-webContents setUserAgent 는 window.open 팝업에 안 먹어서 구글 OAuth 가 차단됐었음)
-const UA_PLATFORM =
-  process.platform === 'win32' ? '"Windows"' : process.platform === 'darwin' ? '"macOS"' : '"Linux"'
-
-let embedSessionReady = false
-function configureEmbedSession(): void {
-  if (embedSessionReady) return
-  const sess = session.fromPartition(EMBED_PARTITION)
-  sess.setUserAgent(CLEAN_UA)
-  // HTTP 헤더 단의 client hints 정리 — Electron 브랜드 제거 + 플랫폼을 실제 OS 와 일치.
-  // (UA 문자열만 바꾸면 Sec-CH-UA 에 Electron 이 남아 봇 탐지에 걸린다)
-  // 진짜 크롬처럼 "Google Chrome" 브랜드를 포함하고, 버전은 실제 Chromium 과 동일하게.
-  const cleanUaList = `"Chromium";v="${CHROME_MAJOR}", "Google Chrome";v="${CHROME_MAJOR}", "Not?A_Brand";v="99"`
-  sess.webRequest.onBeforeSendHeaders((details, cb) => {
-    const h = details.requestHeaders
-    for (const k of Object.keys(h)) {
-      if (/^sec-ch-ua/i.test(k)) delete h[k]
-    }
-    h['Sec-CH-UA'] = cleanUaList
-    h['Sec-CH-UA-Mobile'] = '?0'
-    h['Sec-CH-UA-Platform'] = UA_PLATFORM
-    cb({ requestHeaders: h })
-  })
-  embedSessionReady = true
-}
-
-// 로그인 팝업(구글 OAuth 등)을 같은 세션의 자식 창으로 허용하고 UA 를 다시 박는다.
-// 이게 없으면 팝업이 기본 Electron 창으로 떠서 "이 브라우저는 안전하지 않을 수 있습니다" 차단.
-function wireEmbedPopups(win: BrowserWindow): void {
-  win.webContents.setWindowOpenHandler(() => ({
-    action: 'allow',
-    overrideBrowserWindowOptions: {
-      autoHideMenuBar: true,
-      webPreferences: {
-        partition: EMBED_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false
-      }
-    }
-  }))
-  win.webContents.on('did-create-window', (child) => {
-    child.webContents.setUserAgent(CLEAN_UA)
-  })
-}
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.191 Safari/537.36'
 
 // 렌더러(메인 창)로 진행 상황 전달 — 임베드 창이 아닌 창들에 보냄
 function emitProgress(message: string): void {
@@ -189,7 +122,6 @@ function emitProgress(message: string): void {
 // 임베드 창을 열거나(있으면 재사용) 포커스. grabber 주입 + 콘솔 로그 연결.
 // hidden=true 면 화면에 띄우지 않고 백그라운드로 실행(자동 생성용).
 function openEmbedded(url: string, title?: string, hidden = false): BrowserWindow {
-  configureEmbedSession()
   const source = sourceForUrl(url)
   const existing = embedded.get(source)
   if (existing && !existing.isDestroyed()) {
@@ -207,9 +139,7 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
     autoHideMenuBar: true,
     webPreferences: {
       partition: 'persist:embedded',
-      // contextIsolation:false 로 preload 가 main world 에서 navigator.userAgentData 를
-      // 페이지 스크립트보다 먼저 위장한다. nodeIntegration:false 라 페이지엔 Node 노출 없음.
-      contextIsolation: false,
+      contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // preload(embed.js)가 모듈을 로드하려면 필요
       backgroundThrottling: false, // 숨김 창에서도 자동화 타이머가 느려지지 않게
@@ -217,7 +147,6 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
     }
   })
   win.webContents.setUserAgent(CLEAN_UA) // Electron UA 숨김 (Flow 크래시 회피)
-  wireEmbedPopups(win) // 로그인 팝업(구글 OAuth 등)도 깨끗한 UA 로 열리게
   embedded.set(source, win)
   win.on('closed', () => {
     if (embedded.get(source) === win) embedded.delete(source)
@@ -225,12 +154,6 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
   const inject = (): void => {
     const { port } = getBridgeInfo()
     win.webContents.executeJavaScript(grabberScript(port)).catch(() => {})
-    // [진단] 페이지가 실제로 내보내는 브라우저 지문을 콘솔에 찍는다 (봇 탐지 원인 파악용).
-    win.webContents
-      .executeJavaScript(
-        `(()=>{try{const u=navigator.userAgentData;const d={ua:navigator.userAgent,platform:navigator.platform,uadPlatform:u&&u.platform,mobile:u&&u.mobile,brands:u&&u.brands};console.log('[AVS-DIAG] '+JSON.stringify(d));}catch(e){console.log('[AVS-DIAG] err '+(e&&e.message||e));}})()`
-      )
-      .catch(() => {})
   }
   win.webContents.on('did-finish-load', inject)
   win.webContents.on('console-message', (_e, _lvl, msg) => {
@@ -248,7 +171,6 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
 // 프롬프트 N개 → 창 N개 → 이미지 N장 병렬 생성. 일정 시간 후 자동 정리.
 const batchWindows = new Set<BrowserWindow>()
 function spawnBatchWindow(url: string, title: string): BrowserWindow {
-  configureEmbedSession()
   const win = new BrowserWindow({
     width: 1180,
     height: 820,
@@ -257,7 +179,7 @@ function spawnBatchWindow(url: string, title: string): BrowserWindow {
     autoHideMenuBar: true,
     webPreferences: {
       partition: 'persist:embedded',
-      contextIsolation: false, // navigator 위장 preload 를 main world 에서 실행 (위 openEmbedded 참고)
+      contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
       backgroundThrottling: false,
@@ -265,7 +187,6 @@ function spawnBatchWindow(url: string, title: string): BrowserWindow {
     }
   })
   win.webContents.setUserAgent(CLEAN_UA)
-  wireEmbedPopups(win)
   win.webContents.setAudioMuted(true)
   const inject = (): void => {
     const { port } = getBridgeInfo()
@@ -357,8 +278,6 @@ export function registerIpc(): void {
   })
 
   // --- 이미지 브릿지 (확장 ↔ 앱) ---
-  // 확장 작업(job) 진행 메시지를 렌더러로 전달
-  setJobStatusListener(emitProgress)
   ipcMain.handle(IPC.bridgeInfo, () => getBridgeInfo())
   ipcMain.handle(IPC.bridgeList, () => listImported())
   ipcMain.handle(IPC.bridgeClear, () => clearImported())
@@ -381,16 +300,6 @@ export function registerIpc(): void {
       }
       if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
       console.log('[AVS] 이미지 생성 요청: source=' + source)
-
-      // ChatGPT: 사용자 크롬의 확장에서 실행(로그인 벽 회피). 큐에 넣고 결과를 기다린다.
-      if (source === 'chatgpt') {
-        return await enqueueJob({
-          source,
-          prompt: prompt.trim(),
-          aspect: aspect || '16:9',
-          referenceImages: referenceImages || []
-        })
-      }
 
       const url = source === 'flow' ? SOURCE_URL.flow : SOURCE_URL.chatgpt
       const title = source === 'flow' ? 'Google Flow' : 'ChatGPT'

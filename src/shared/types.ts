@@ -91,15 +91,6 @@ export interface VideoGenSettings {
   aspect?: string // '16:9' | '9:16' | '1:1'
 }
 
-/** 앱→확장으로 내려보내는 생성 작업. 확장(content script)이 /poll 로 가져가 실행한다. */
-export interface BridgeJob {
-  id: string
-  source: ImageSource
-  prompt: string
-  aspect?: string // '16:9' 등
-  referenceImages?: string[] // I2I 참조 이미지 dataURL 배열
-}
-
 /** 로컬 이미지 수신 서버 정보 (확장이 접속할 주소) */
 export interface BridgeInfo {
   port: number

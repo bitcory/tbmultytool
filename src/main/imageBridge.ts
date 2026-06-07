@@ -6,7 +6,7 @@ import { promises as fs, createReadStream } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { app, net } from 'electron'
-import type { BridgeInfo, BridgeJob, ImageSource, ImportedImage } from '@shared/types'
+import type { BridgeInfo, ImageSource, ImportedImage } from '@shared/types'
 
 const PREFERRED_PORT = 47321
 const MAX_BODY = 40 * 1024 * 1024 // 40MB
@@ -20,54 +20,6 @@ let notify: (img: ImportedImage) => void = () => {}
 let debugEval: ((target: string, js: string) => Promise<unknown>) | null = null
 export function setDebugEval(fn: (target: string, js: string) => Promise<unknown>): void {
   debugEval = fn
-}
-
-// ── 앱→확장 작업 큐 ─────────────────────────────────────────────────────
-// 앱이 생성 작업을 큐에 넣으면, 사용자 크롬의 확장(content script)이 /poll 로 가져가
-// 실제 로그인된 페이지에서 실행하고 결과를 /import + /job-status 로 돌려준다.
-interface PendingJob {
-  job: BridgeJob
-  resolve: (r: { ok: boolean; message?: string }) => void
-  timer: ReturnType<typeof setTimeout>
-  taken: boolean
-}
-const jobQueue: PendingJob[] = []
-const JOB_TIMEOUT_MS = 5 * 60 * 1000
-let jobStatusNotify: (message: string) => void = () => {}
-export function setJobStatusListener(cb: (message: string) => void): void {
-  jobStatusNotify = cb
-}
-
-/** 작업을 큐에 넣고, 확장이 완료/실패를 보고할 때 resolve 되는 Promise 를 반환. */
-export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<{ ok: boolean; message?: string }> {
-  return new Promise((resolve) => {
-    const job: BridgeJob = { id: crypto.randomUUID(), ...input }
-    const timer = setTimeout(() => {
-      const i = jobQueue.findIndex((p) => p.job.id === job.id)
-      if (i >= 0) jobQueue.splice(i, 1)
-      resolve({
-        ok: false,
-        message: '시간 초과 — 크롬에서 해당 사이트 탭이 열려있고 TB MTOOL 확장이 켜져있는지 확인하세요.'
-      })
-    }, JOB_TIMEOUT_MS)
-    jobQueue.push({ job, resolve, timer, taken: false })
-    jobStatusNotify(`크롬 확장에 ${job.source} 생성 작업 전달 — 크롬 탭에서 실행 대기 중…`)
-  })
-}
-
-function takeJob(source: string): BridgeJob | null {
-  const p = jobQueue.find((q) => !q.taken && q.job.source === source)
-  if (!p) return null
-  p.taken = true
-  return p.job
-}
-
-function finishJob(id: string, ok: boolean, message?: string): void {
-  const i = jobQueue.findIndex((p) => p.job.id === id)
-  if (i < 0) return
-  const [p] = jobQueue.splice(i, 1)
-  clearTimeout(p.timer)
-  p.resolve({ ok, message })
 }
 
 const MIME_EXT: Record<string, string> = {
@@ -291,25 +243,6 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
     if (req.method === 'GET' && req.url && req.url.startsWith('/media/')) {
       const name = decodeURIComponent(req.url.slice('/media/'.length).split('?')[0])
       await serveMedia(req, res, path.join(dir, path.basename(name))) // basename: 경로 탈출 방지
-      return
-    }
-    // 확장이 다음 작업을 가져감 — /poll?source=chatgpt
-    if (req.method === 'GET' && req.url && req.url.startsWith('/poll')) {
-      const q = new URL(req.url, 'http://127.0.0.1').searchParams.get('source') || ''
-      json(res, 200, { ok: true, job: takeJob(q) })
-      return
-    }
-    // 확장이 작업 진행/완료/실패를 보고 — { id, status:'progress'|'done'|'error', message? }
-    if (req.method === 'POST' && req.url === '/job-status') {
-      try {
-        const { id, status, message } = JSON.parse(await readBody(req))
-        if (message) jobStatusNotify(String(message))
-        if (status === 'done') finishJob(String(id), true)
-        else if (status === 'error') finishJob(String(id), false, message ? String(message) : '확장에서 생성 실패')
-        json(res, 200, { ok: true })
-      } catch (err) {
-        json(res, 400, { ok: false, error: String(err instanceof Error ? err.message : err) })
-      }
       return
     }
     if (req.method === 'POST' && req.url === '/import') {
