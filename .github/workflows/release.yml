@@ -35,3 +35,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 맥은 코드 서명 없이 빌드 (서명 자동탐색 끄기). dmg 는 수동 배포용으로 Releases 에 올라감.
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+  # 윈도우+맥 빌드가 모두 끝난 뒤, electron-builder 가 만든 draft 릴리즈를 공개로 전환.
+  # 이 잡 덕분에 앞으로는 태그 푸시만 하면 수동 공개 단계 없이 자동 배포된다.
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false
