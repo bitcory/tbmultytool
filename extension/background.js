@@ -108,5 +108,38 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }))
     return true
   }
+  // 앱에서 다음 생성 작업 가져오기 (content script 자동화 루프가 폴링)
+  if (msg?.type === 'poll') {
+    ;(async () => {
+      try {
+        const base = await findApp()
+        if (!base) return sendResponse({ ok: false, job: null })
+        const r = await fetch(base + '/poll?source=' + encodeURIComponent(msg.source || ''))
+        const j = await r.json().catch(() => ({ ok: false }))
+        sendResponse({ ok: !!j.ok, job: j.job || null })
+      } catch (e) {
+        sendResponse({ ok: false, job: null })
+      }
+    })()
+    return true
+  }
+  // 작업 진행/완료/실패 보고를 앱으로 중계
+  if (msg?.type === 'job-status') {
+    ;(async () => {
+      try {
+        const base = await findApp()
+        if (!base) return sendResponse({ ok: false })
+        await fetch(base + '/job-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: msg.id, status: msg.status, message: msg.message })
+        })
+        sendResponse({ ok: true })
+      } catch (e) {
+        sendResponse({ ok: false })
+      }
+    })()
+    return true
+  }
   return false
 })

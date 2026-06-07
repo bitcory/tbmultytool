@@ -20,7 +20,16 @@ import { generateScript } from './services/script'
 import { generateImage } from './services/image'
 import { generateTts } from './services/tts'
 import { renderVideo } from './services/render'
-import { getBridgeInfo, listImported, clearImported, removeImported, importImage, setDebugEval } from './imageBridge'
+import {
+  getBridgeInfo,
+  listImported,
+  clearImported,
+  removeImported,
+  importImage,
+  setDebugEval,
+  enqueueJob,
+  setJobStatusListener
+} from './imageBridge'
 import { grabberScript } from './injectGrabber'
 import { chatgptGenerateScript } from './automateChatgpt'
 import { grokVideoScript } from './automateGrok'
@@ -284,6 +293,8 @@ export function registerIpc(): void {
   })
 
   // --- 이미지 브릿지 (확장 ↔ 앱) ---
+  // 확장 작업(job) 진행 메시지를 렌더러로 전달
+  setJobStatusListener(emitProgress)
   ipcMain.handle(IPC.bridgeInfo, () => getBridgeInfo())
   ipcMain.handle(IPC.bridgeList, () => listImported())
   ipcMain.handle(IPC.bridgeClear, () => clearImported())
@@ -306,6 +317,16 @@ export function registerIpc(): void {
       }
       if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
       console.log('[AVS] 이미지 생성 요청: source=' + source)
+
+      // ChatGPT: 사용자 크롬의 확장에서 실행(임베드 창 봇벽 회피). 큐에 넣고 결과를 기다린다.
+      if (source === 'chatgpt') {
+        return await enqueueJob({
+          source,
+          prompt: prompt.trim(),
+          aspect: aspect || '16:9',
+          referenceImages: referenceImages || []
+        })
+      }
 
       const url = source === 'flow' ? SOURCE_URL.flow : SOURCE_URL.chatgpt
       const title = source === 'flow' ? 'Google Flow' : 'ChatGPT'
