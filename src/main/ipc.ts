@@ -110,6 +110,7 @@ function sourceForUrl(url: string): ImageSource {
 // Electron/앱 식별자를 제거한 깨끗한 Chrome UA (Google Flow 등 자동화 탐지/크래시 회피).
 // 실행 OS에 맞춘 데스크톱 Chrome UA — 윈도우에서 맥 UA가 나가면 탐지 위험이 커진다.
 const CHROME_VER = '131.0.0.0'
+const CHROME_MAJOR = '131'
 const CLEAN_UA =
   process.platform === 'win32'
     ? `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`
@@ -121,10 +122,27 @@ const EMBED_PARTITION = 'persist:embedded'
 
 // 임베드 세션 전체에 깨끗한 UA 적용 — 팝업/리다이렉트까지 모두 덮어 Electron UA 노출 방지.
 // (per-webContents setUserAgent 는 window.open 팝업에 안 먹어서 구글 OAuth 가 차단됐었음)
+const UA_PLATFORM =
+  process.platform === 'win32' ? '"Windows"' : process.platform === 'darwin' ? '"macOS"' : '"Linux"'
+
 let embedSessionReady = false
 function configureEmbedSession(): void {
   if (embedSessionReady) return
-  session.fromPartition(EMBED_PARTITION).setUserAgent(CLEAN_UA)
+  const sess = session.fromPartition(EMBED_PARTITION)
+  sess.setUserAgent(CLEAN_UA)
+  // HTTP 헤더 단의 client hints 정리 — Electron 브랜드 제거 + 플랫폼을 실제 OS 와 일치.
+  // (UA 문자열만 바꾸면 Sec-CH-UA 에 Electron 이 남아 봇 탐지에 걸린다)
+  const cleanUaList = `"Google Chrome";v="${CHROME_MAJOR}", "Chromium";v="${CHROME_MAJOR}", "Not_A Brand";v="24"`
+  sess.webRequest.onBeforeSendHeaders((details, cb) => {
+    const h = details.requestHeaders
+    for (const k of Object.keys(h)) {
+      if (/^sec-ch-ua/i.test(k)) delete h[k]
+    }
+    h['Sec-CH-UA'] = cleanUaList
+    h['Sec-CH-UA-Mobile'] = '?0'
+    h['Sec-CH-UA-Platform'] = UA_PLATFORM
+    cb({ requestHeaders: h })
+  })
   embedSessionReady = true
 }
 
@@ -193,8 +211,18 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
   const inject = (): void => {
     const { port } = getBridgeInfo()
     win.webContents.executeJavaScript(grabberScript(port)).catch(() => {})
+    // [진단] 페이지가 실제로 내보내는 브라우저 지문을 콘솔에 찍는다 (봇 탐지 원인 파악용).
+    win.webContents
+      .executeJavaScript(
+        `(()=>{try{const u=navigator.userAgentData;const d={ua:navigator.userAgent,platform:navigator.platform,uadPlatform:u&&u.platform,mobile:u&&u.mobile,brands:u&&u.brands};console.log('[AVS-DIAG] '+JSON.stringify(d));}catch(e){console.log('[AVS-DIAG] err '+(e&&e.message||e));}})()`
+      )
+      .catch(() => {})
   }
   win.webContents.on('did-finish-load', inject)
+  // [진단 빌드] 보이는 임베드 창은 개발자도구를 자동으로 띄워 콘솔의 [AVS-DIAG] 를 바로 보게.
+  if (!hidden) {
+    win.webContents.once('did-finish-load', () => win.webContents.openDevTools({ mode: 'detach' }))
+  }
   win.webContents.on('console-message', (_e, _lvl, msg) => {
     // 자동 생성 진행 로그는 렌더러로 전달(앱 카드에 표시) + 메인 로그(디버그)
     if (msg.includes('[AVS-GEN]')) {
