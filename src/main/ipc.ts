@@ -20,7 +20,16 @@ import { generateScript } from './services/script'
 import { generateImage } from './services/image'
 import { generateTts } from './services/tts'
 import { renderVideo } from './services/render'
-import { getBridgeInfo, listImported, clearImported, removeImported, importImage, setDebugEval } from './imageBridge'
+import {
+  getBridgeInfo,
+  listImported,
+  clearImported,
+  removeImported,
+  importImage,
+  setDebugEval,
+  enqueueJob,
+  setJobStatusListener
+} from './imageBridge'
 import { grabberScript } from './injectGrabber'
 import { chatgptGenerateScript } from './automateChatgpt'
 import { grokVideoScript } from './automateGrok'
@@ -224,10 +233,6 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
       .catch(() => {})
   }
   win.webContents.on('did-finish-load', inject)
-  // [진단 빌드] 보이는 임베드 창은 개발자도구를 자동으로 띄워 콘솔의 [AVS-DIAG] 를 바로 보게.
-  if (!hidden) {
-    win.webContents.once('did-finish-load', () => win.webContents.openDevTools({ mode: 'detach' }))
-  }
   win.webContents.on('console-message', (_e, _lvl, msg) => {
     // 자동 생성 진행 로그는 렌더러로 전달(앱 카드에 표시) + 메인 로그(디버그)
     if (msg.includes('[AVS-GEN]')) {
@@ -352,6 +357,8 @@ export function registerIpc(): void {
   })
 
   // --- 이미지 브릿지 (확장 ↔ 앱) ---
+  // 확장 작업(job) 진행 메시지를 렌더러로 전달
+  setJobStatusListener(emitProgress)
   ipcMain.handle(IPC.bridgeInfo, () => getBridgeInfo())
   ipcMain.handle(IPC.bridgeList, () => listImported())
   ipcMain.handle(IPC.bridgeClear, () => clearImported())
@@ -374,6 +381,16 @@ export function registerIpc(): void {
       }
       if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
       console.log('[AVS] 이미지 생성 요청: source=' + source)
+
+      // ChatGPT: 사용자 크롬의 확장에서 실행(로그인 벽 회피). 큐에 넣고 결과를 기다린다.
+      if (source === 'chatgpt') {
+        return await enqueueJob({
+          source,
+          prompt: prompt.trim(),
+          aspect: aspect || '16:9',
+          referenceImages: referenceImages || []
+        })
+      }
 
       const url = source === 'flow' ? SOURCE_URL.flow : SOURCE_URL.chatgpt
       const title = source === 'flow' ? 'Google Flow' : 'ChatGPT'

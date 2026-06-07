@@ -44,6 +44,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 크롬 확장을 zip 으로 묶어 릴리즈에 첨부 (사용자가 "압축해제 후 load unpacked" 로 설치).
+      - name: Zip extension
+        run: cd extension && zip -r ../tbmtool-extension.zip . -x '*.DS_Store' && cd ..
+
+      - name: Upload extension asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" tbmtool-extension.zip --repo "${GITHUB_REPOSITORY}" --clobber
+
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

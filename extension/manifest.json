@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TB MTOOL Companion",
-  "version": "0.1.0",
-  "description": "ChatGPT·Google Flow에서 만든 이미지를 TB MTOOL 앱으로 가져옵니다 (로컬 전용).",
+  "version": "0.1.1",
+  "description": "ChatGPT·Google Flow에서 만든 이미지를 TB MTOOL 앱으로 가져오고, 앱의 생성 작업을 대신 실행합니다 (로컬 전용).",
   "permissions": ["storage", "contextMenus"],
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -24,6 +24,11 @@
         "https://labs.google/*"
       ],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["automate.js"],
       "run_at": "document_idle"
     }
   ],
