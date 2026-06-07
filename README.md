@@ -1,4 +1,4 @@
-# TB MULTY TOOL
+# TB MTOOL
 
 주제 한 줄 → AI 대본 → TTS 음성 → 이미지 → FFmpeg 합성으로 영상을 자동 생성하는 데스크톱 앱.
 (Electron + React + TypeScript, 본인 API 키 사용)

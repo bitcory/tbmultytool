@@ -1,4 +1,4 @@
-import { dialog, ipcMain, shell, BrowserWindow } from 'electron'
+import { dialog, ipcMain, shell, BrowserWindow, session } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
 import os from 'os'
@@ -117,6 +117,37 @@ const CLEAN_UA =
       ? `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`
       : `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_VER} Safari/537.36`
 
+const EMBED_PARTITION = 'persist:embedded'
+
+// 임베드 세션 전체에 깨끗한 UA 적용 — 팝업/리다이렉트까지 모두 덮어 Electron UA 노출 방지.
+// (per-webContents setUserAgent 는 window.open 팝업에 안 먹어서 구글 OAuth 가 차단됐었음)
+let embedSessionReady = false
+function configureEmbedSession(): void {
+  if (embedSessionReady) return
+  session.fromPartition(EMBED_PARTITION).setUserAgent(CLEAN_UA)
+  embedSessionReady = true
+}
+
+// 로그인 팝업(구글 OAuth 등)을 같은 세션의 자식 창으로 허용하고 UA 를 다시 박는다.
+// 이게 없으면 팝업이 기본 Electron 창으로 떠서 "이 브라우저는 안전하지 않을 수 있습니다" 차단.
+function wireEmbedPopups(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      autoHideMenuBar: true,
+      webPreferences: {
+        partition: EMBED_PARTITION,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false
+      }
+    }
+  }))
+  win.webContents.on('did-create-window', (child) => {
+    child.webContents.setUserAgent(CLEAN_UA)
+  })
+}
+
 // 렌더러(메인 창)로 진행 상황 전달 — 임베드 창이 아닌 창들에 보냄
 function emitProgress(message: string): void {
   const embeds = new Set(embedded.values())
@@ -128,6 +159,7 @@ function emitProgress(message: string): void {
 // 임베드 창을 열거나(있으면 재사용) 포커스. grabber 주입 + 콘솔 로그 연결.
 // hidden=true 면 화면에 띄우지 않고 백그라운드로 실행(자동 생성용).
 function openEmbedded(url: string, title?: string, hidden = false): BrowserWindow {
+  configureEmbedSession()
   const source = sourceForUrl(url)
   const existing = embedded.get(source)
   if (existing && !existing.isDestroyed()) {
@@ -153,6 +185,7 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
     }
   })
   win.webContents.setUserAgent(CLEAN_UA) // Electron UA 숨김 (Flow 크래시 회피)
+  wireEmbedPopups(win) // 로그인 팝업(구글 OAuth 등)도 깨끗한 UA 로 열리게
   embedded.set(source, win)
   win.on('closed', () => {
     if (embedded.get(source) === win) embedded.delete(source)
@@ -177,6 +210,7 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
 // 프롬프트 N개 → 창 N개 → 이미지 N장 병렬 생성. 일정 시간 후 자동 정리.
 const batchWindows = new Set<BrowserWindow>()
 function spawnBatchWindow(url: string, title: string): BrowserWindow {
+  configureEmbedSession()
   const win = new BrowserWindow({
     width: 1180,
     height: 820,
@@ -193,6 +227,7 @@ function spawnBatchWindow(url: string, title: string): BrowserWindow {
     }
   })
   win.webContents.setUserAgent(CLEAN_UA)
+  wireEmbedPopups(win)
   win.webContents.setAudioMuted(true)
   const inject = (): void => {
     const { port } = getBridgeInfo()

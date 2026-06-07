@@ -1,6 +1,6 @@
-# TB MULTY TOOL Companion (크롬 확장)
+# TB MTOOL Companion (크롬 확장)
 
-ChatGPT / Google Flow에서 만든 이미지를 데스크톱 앱 **TB MULTY TOOL**로 가져오는 로컬 전용 확장입니다.
+ChatGPT / Google Flow에서 만든 이미지를 데스크톱 앱 **TB MTOOL**로 가져오는 로컬 전용 확장입니다.
 
 ## 설치 (개발자 모드)
 
@@ -10,7 +10,7 @@ ChatGPT / Google Flow에서 만든 이미지를 데스크톱 앱 **TB MULTY TOOL
 
 ## 사용법
 
-1. **TB MULTY TOOL 앱을 먼저 실행** (앱이 `127.0.0.1`에서 이미지를 받습니다)
+1. **TB MTOOL 앱을 먼저 실행** (앱이 `127.0.0.1`에서 이미지를 받습니다)
 2. ChatGPT(`chatgpt.com`) 또는 Google Flow(`labs.google`)에서 이미지 생성
 3. 이미지 위에 마우스를 올리면 뜨는 **“📥 앱으로 보내기”** 버튼 클릭
 4. 앱의 **이미지 가져오기** 탭에 들어옵니다

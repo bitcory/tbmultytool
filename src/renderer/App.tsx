@@ -18,7 +18,7 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Film size={18} /> TB MULTY TOOL
+          <Film size={18} /> TB MTOOL
         </div>
         {NAV.map(({ id, label, Icon }) => (
           <button

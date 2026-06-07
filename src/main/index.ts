@@ -7,13 +7,18 @@ import { IPC } from '@shared/types'
 
 let mainWindow: BrowserWindow | null = null
 
+const appIcon = app.isPackaged
+  ? path.join(process.resourcesPath, 'icon.png')
+  : path.join(__dirname, '../../build/icon.png')
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 960,
     minHeight: 640,
-    title: 'TB MULTY TOOL',
+    title: 'TB MTOOL',
+    icon: appIcon,
     backgroundColor: '#0f1115',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),

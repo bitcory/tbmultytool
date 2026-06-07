@@ -46,7 +46,7 @@ async function urlToDataUrl(url) {
 
 async function sendToApp(msg) {
   const base = await findApp()
-  if (!base) throw new Error('앱을 찾을 수 없습니다. TB MULTY TOOL 앱이 실행 중인지 확인하세요.')
+  if (!base) throw new Error('앱을 찾을 수 없습니다. TB MTOOL 앱이 실행 중인지 확인하세요.')
 
   let dataUrl = msg.dataUrl
   if (!dataUrl && msg.url) dataUrl = await urlToDataUrl(msg.url)

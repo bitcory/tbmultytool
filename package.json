@@ -1,16 +1,23 @@
 {
   "name": "ai-video-studio",
-  "version": "0.1.0",
-  "description": "AI 기반 영상 자동제작 — 주제→대본→TTS→이미지→영상 합성",
+  "version": "0.1.1",
+  "description": "AI 영상 제작을 쉽고 빠르게 TB M TOOL",
   "main": "out/main/index.js",
   "author": "toolb",
   "license": "MIT",
   "build": {
     "appId": "com.toolb.aivideostudio",
-    "productName": "TB MULTY TOOL",
+    "productName": "TB MTOOL",
+    "icon": "build/icon",
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "files": [
       "out/**/*",
       "node_modules/**/*",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Clapperboard, Sparkles, ImageIcon, Loader2, Type, Images as ImagesIcon, X, RotateCw, Download, Check, CheckSquare } from 'lucide-react'
+import { MessageSquare, Clapperboard, Sparkles, ImageIcon, Loader2, Type, Images as ImagesIcon, X, RotateCw, Download, Check, CheckSquare, Trash2 } from 'lucide-react'
 import type { ImageSource, ImportedImage } from '@shared/types'
 
 const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '3:4']
@@ -149,6 +149,16 @@ export default function ImageGen() {
   }
   const downloadAll = () => exportZip(inGenOrder, 'generated-images')
   const downloadSelected = () => exportZip(inGenOrder.filter((i) => selIds.has(i.id)), 'selected-images')
+  const deleteSelected = async () => {
+    const ids = [...selIds]
+    if (!ids.length) return
+    if (!confirm(`선택한 ${ids.length}장을 삭제할까요?`)) return
+    await window.electronAPI.bridge.remove(ids)
+    setImages((prev) => prev.filter((i) => !selIds.has(i.id)))
+    localStorage.setItem('igen-ids', JSON.stringify(savedIds().filter((id) => !selIds.has(id))))
+    setSelIds(new Set())
+    setSelMode(false)
+  }
   const toggleSelId = (id: string) =>
     setSelIds((prev) => {
       const n = new Set(prev)
@@ -216,6 +226,9 @@ export default function ImageGen() {
                 <>
                   <button className="igen-act" onClick={downloadSelected} disabled={selIds.size === 0}>
                     <Download size={13} /> 선택 받기 ({selIds.size})
+                  </button>
+                  <button className="igen-act danger" onClick={deleteSelected} disabled={selIds.size === 0}>
+                    <Trash2 size={13} /> 선택 삭제 ({selIds.size})
                   </button>
                   <button className="igen-act" onClick={() => { setSelMode(false); setSelIds(new Set()) }}>
                     취소

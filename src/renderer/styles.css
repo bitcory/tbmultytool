@@ -140,6 +140,8 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-
 .igen-act { display: flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
 .igen-act:hover { border-color: var(--primary); }
 .igen-act:disabled { opacity: .45; cursor: default; }
+.igen-act.danger { color: var(--red); }
+.igen-act.danger:hover { border-color: var(--red); }
 .igen-tile.sel { outline: 3px solid var(--primary); outline-offset: -3px; }
 .igen-tile-check { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 6px; background: rgba(15,17,21,0.6); border: 2px solid #fff; display: flex; align-items: center; justify-content: center; color: #fff; }
 .igen-tile-check.on { background: var(--primary); border-color: var(--primary); }
