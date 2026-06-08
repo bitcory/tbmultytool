@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Clapperboard, Film, Wand2, GalleryHorizontalEnd, Settings as SettingsIcon } from 'lucide-react'
 import { useStore } from './store'
 import Wizard from './pages/Wizard'
@@ -14,6 +15,10 @@ const NAV = [
 
 export default function App() {
   const { view, setView } = useStore()
+  const [version, setVersion] = useState('')
+  useEffect(() => {
+    window.electronAPI.getVersion().then(setVersion)
+  }, [])
   return (
     <div className="app">
       <aside className="sidebar">
@@ -31,7 +36,9 @@ export default function App() {
           </button>
         ))}
         <div className="spacer" />
-        <div className="hint" style={{ padding: '0 12px' }}>v1.0 Made by ToolB</div>
+        <div className="hint" style={{ padding: '0 12px' }}>
+          {version ? `v${version}` : ''} Made by ToolB
+        </div>
       </aside>
       <main className={`main ${view === 'wizard' ? 'flush' : ''}`}>
         {view === 'imagegen' ? (
