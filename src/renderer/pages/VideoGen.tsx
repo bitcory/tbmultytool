@@ -13,6 +13,9 @@ const RESOLUTIONS = [
   { v: '720p', label: '720p' }
 ]
 const isVideoPath = (p: string) => /\.(mp4|webm|mov)$/i.test(p)
+// 빈 줄(엔터 2번)로 프롬프트 분리 → 여러 영상
+const splitPrompts = (t: string): string[] =>
+  t.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean)
 
 const fileToDataUrl = (f: File): Promise<string> =>
   new Promise((res, rej) => {
@@ -133,25 +136,31 @@ export default function VideoGen() {
   }
 
   const run = async () => {
-    if (!image && !prompt.trim()) {
+    const list = splitPrompts(prompt)
+    // 프롬프트 여러 개면 각각 영상 1개. 프롬프트 없고 이미지만 있으면 1개(모션 없이).
+    const jobs = list.length > 0 ? list : image ? [''] : []
+    if (jobs.length === 0) {
       setMsg('프롬프트(영상 설명)를 입력하거나 이미지를 첨부하세요')
       return
     }
     setGenerating(true)
-    pendingCount.current = 1
-    setLoadingN(1)
-    setMsg('영상 생성 시작…')
-    const r = await window.electronAPI.bridge.generateVideo(prompt.trim(), image, {
-      aspect,
-      duration,
-      resolution
+    pendingCount.current = jobs.length
+    setLoadingN(jobs.length)
+    setMsg(`${jobs.length}개 영상 생성 시작…`)
+    jobs.forEach((p) => {
+      window.electronAPI.bridge
+        .generateVideo(p, image, { aspect, duration, resolution })
+        .then((r) => {
+          // 성공 영상은 onImported 에서 처리. 실패한 작업만 여기서 카운트 감소.
+          if (!r.ok) {
+            pendingCount.current = Math.max(0, pendingCount.current - 1)
+            setLoadingN(pendingCount.current)
+            if (pendingCount.current <= 0) setGenerating(false)
+            setMsg(r.message || '일부 생성 실패')
+          }
+        })
+        .catch(() => {})
     })
-    if (!r.ok) {
-      pendingCount.current = 0
-      setGenerating(false)
-      setLoadingN(0)
-      setMsg(r.message || '생성 실패')
-    }
   }
 
   const stop = async () => {
@@ -295,11 +304,14 @@ export default function VideoGen() {
           {/* 프롬프트 (T2V: 영상 설명 / I2V: 모션) */}
           <div className="igen-label" style={{ marginTop: 16 }}>
             프롬프트 <span style={{ opacity: 0.6 }}>(이미지 없으면 영상 설명, 있으면 모션)</span>
+            {splitPrompts(prompt).length > 1 && (
+              <span className="igen-tag"> {splitPrompts(prompt).length}개 · 영상 {splitPrompts(prompt).length}편</span>
+            )}
           </div>
           <textarea
             className="igen-textarea"
-            rows={4}
-            placeholder={'예) 텍스트만: 해질녘 바닷가를 걷는 사람, 영화 같은 분위기\n예) 이미지+모션: 카메라가 천천히 줌인, 인물이 미소짓는다'}
+            rows={5}
+            placeholder={'예) 해질녘 바닷가를 걷는 사람, 영화 같은 분위기\n\n빈 줄(엔터 2번)로 구분하면 영상 여러 편을 따로 만듭니다.'}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
@@ -365,7 +377,7 @@ export default function VideoGen() {
                 </>
               ) : (
                 <>
-                  <Sparkles size={16} /> 영상 생성
+                  <Sparkles size={16} /> 영상 생성 {splitPrompts(prompt).length > 1 ? `(${splitPrompts(prompt).length}편)` : ''}
                 </>
               )}
             </button>
