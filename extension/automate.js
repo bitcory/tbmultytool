@@ -268,6 +268,11 @@
       await send({ type: 'job-status', id: job.id, status: 'error', message: m })
       log('오류: ' + m)
     } finally {
+      // 봇 감지 회피: 다음 생성까지 사람처럼 랜덤 간격(12~25초). 고정 간격은 그 자체가 봇 신호.
+      const cooldown = 12000 + Math.floor(Math.random() * 13000)
+      const sec = Math.round(cooldown / 1000)
+      report('다음 생성까지 대기 ' + sec + '초…')
+      await sleep(cooldown)
       busy = false
     }
   }
