@@ -182,6 +182,32 @@
   }
   function blobToDataUrl(blob) { return new Promise((rs, rj) => { const fr = new FileReader(); fr.onload = () => rs(fr.result); fr.onerror = rj; fr.readAsDataURL(blob) }) }
 
+  // 사이드바의 "Imagine" 을 눌러 새 생성 세션으로 리셋(이전 영상 잔재 제거).
+  // content script 라 페이지 리로드(작업 끊김) 대신 SPA 클릭으로 깨끗한 컴포저를 얻는다.
+  function findImagineLink() {
+    return (
+      qs('a[href="/imagine"]') ||
+      qs('a[href$="/imagine"]') ||
+      qs('a[href*="grok.com/imagine"]') ||
+      qsa('a, button').find((e) => {
+        const t = (e.innerText || e.textContent || '').trim()
+        return t === 'Imagine' || t === '이미지 생성' || (e.getAttribute('aria-label') || '') === 'Imagine'
+      }) ||
+      null
+    )
+  }
+  async function goFreshImagine() {
+    const link = findImagineLink()
+    if (link) {
+      realClick(link)
+      await sleep(1500)
+    }
+    // 새 컴포저(입력창) 준비 대기 — 이전 대화/영상이 사라지고 깨끗해질 때까지
+    let input = getInput(), t = 0
+    while (!input && t++ < 24) { await sleep(300); input = getInput() }
+    return !!getInput()
+  }
+
   // 한 개 작업 실행 → 생성 영상 {dataUrl} 또는 {url} 반환 (실패 시 throw)
   async function runJob(job, report) {
     const PROMPT = job.prompt || ''
@@ -200,6 +226,10 @@
       send({ type: 'need-login', site: 'grok' })
       throw new Error('Grok 입력창 없음 — 크롬에서 grok.com 로그인 후 다시 시도하세요')
     }
+
+    // 이전 생성 잔재 제거: 새 Imagine 세션으로 리셋 (안 그러면 2번째부터 "업로드 대기"에서 멈춤)
+    report('새 생성 세션 시작…')
+    await goFreshImagine()
 
     report('비디오 모드 선택 중…')
     if (!(await switchVideoMode())) log('주의: 비디오 칩 못찾음(계속 진행)')
