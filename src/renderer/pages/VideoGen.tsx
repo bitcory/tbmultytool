@@ -133,8 +133,8 @@ export default function VideoGen() {
   }
 
   const run = async () => {
-    if (!image) {
-      setMsg('입력 이미지를 첨부하세요 (Grok 은 이미지→영상)')
+    if (!image && !prompt.trim()) {
+      setMsg('프롬프트(영상 설명)를 입력하거나 이미지를 첨부하세요')
       return
     }
     setGenerating(true)
@@ -253,9 +253,9 @@ export default function VideoGen() {
             </button>
           </div>
 
-          {/* 입력 이미지 */}
+          {/* 입력 이미지 (선택) */}
           <div className="igen-label" style={{ marginTop: 16 }}>
-            입력 이미지
+            입력 이미지 <span style={{ opacity: 0.6 }}>(선택 · 없으면 텍스트로 생성)</span>
           </div>
           <div
             className="igen-drop"
@@ -292,13 +292,14 @@ export default function VideoGen() {
             onChange={(e) => e.target.files && attachFile(e.target.files)}
           />
 
-          {/* 모션 프롬프트 */}
+          {/* 프롬프트 (T2V: 영상 설명 / I2V: 모션) */}
           <div className="igen-label" style={{ marginTop: 16 }}>
-            모션 프롬프트 <span style={{ opacity: 0.6 }}>(선택)</span>
+            프롬프트 <span style={{ opacity: 0.6 }}>(이미지 없으면 영상 설명, 있으면 모션)</span>
           </div>
           <textarea
             className="igen-textarea"
-            placeholder="예: 카메라가 천천히 줌인, 인물이 미소짓는다"
+            rows={4}
+            placeholder={'예) 텍스트만: 해질녘 바닷가를 걷는 사람, 영화 같은 분위기\n예) 이미지+모션: 카메라가 천천히 줌인, 인물이 미소짓는다'}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
@@ -380,7 +381,7 @@ export default function VideoGen() {
           </div>
           {msg && <div className={`igen-msg ${msg === '완료' ? 'ok' : ''}`}>{msg}</div>}
           <p className="igen-note">
-            ※ Grok 로그인 필요 (크롬). 이미지→영상 한 편 생성됩니다.
+            ※ Grok 로그인 필요 (크롬). 텍스트만(T2V) 또는 이미지+모션(I2V)으로 영상 한 편 생성됩니다.
           </p>
         </div>
       </div>

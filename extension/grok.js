@@ -191,7 +191,7 @@
     const DURATION = s.duration || '6'
     const QUALITY = s.resolution || '720p'
     const RES_CHIP = QUALITY === '720p' ? '720p' : '480p'
-    if (!IMG) throw new Error('입력 이미지가 없습니다')
+    if (!IMG && !PROMPT) throw new Error('이미지나 프롬프트 중 하나는 필요합니다')
 
     report('Grok 준비 중…')
     let input = getInput(), t = 0
@@ -210,9 +210,11 @@
     await setChip(RES_CHIP)
     await setChip(DURATION + 's')
 
-    report('이미지 업로드 중…')
-    await uploadImage(IMG)
-    await sleep(500)
+    if (IMG) {
+      report('이미지 업로드 중…')
+      await uploadImage(IMG)
+      await sleep(500)
+    }
 
     report('프롬프트 입력 중…')
     await typePrompt(PROMPT)

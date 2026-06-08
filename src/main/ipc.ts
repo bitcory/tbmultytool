@@ -372,12 +372,15 @@ export function registerIpc(): void {
       imageDataUrl: string,
       settings?: VideoGenSettings
     ): Promise<{ ok: boolean; message?: string }> => {
-      if (!imageDataUrl) return { ok: false, message: '먼저 이미지를 생성하세요.' }
+      // 이미지 없이 텍스트(T2V)도 허용 — 프롬프트나 이미지 중 하나는 필요.
+      if (!imageDataUrl && !prompt?.trim()) {
+        return { ok: false, message: '프롬프트 또는 이미지를 입력하세요.' }
+      }
       // 사용자 크롬의 확장에서 실행(임베드 창 봇벽 회피). 큐에 넣고 결과를 기다린다.
       return await enqueueJob({
         source: 'grok',
         prompt: prompt || '',
-        imageDataUrl,
+        imageDataUrl: imageDataUrl || '',
         videoSettings: settings || {}
       })
 
