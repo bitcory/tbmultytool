@@ -453,6 +453,21 @@ export function registerIpc(): void {
       }
       const list = (items || []).filter((it) => it && it.prompt && it.prompt.trim())
       if (!list.length) return { ok: false, message: '프롬프트가 없습니다.' }
+
+      // ChatGPT: 각 프롬프트를 확장 작업 큐에 넣는다(임베드 창 봇벽 회피).
+      // 확장이 사용자 크롬에서 순차 생성 → 결과는 onImported 로 갤러리에 도착.
+      if (source === 'chatgpt') {
+        list.forEach((item) => {
+          enqueueJob({
+            source: 'chatgpt',
+            prompt: item.prompt.trim(),
+            aspect: aspect || '16:9',
+            referenceImages: item.images && item.images.length ? item.images : []
+          }).catch(() => {})
+        })
+        return { ok: true, count: list.length }
+      }
+
       const url = SOURCE_URL[source]
       const title = source === 'flow' ? 'Google Flow' : 'ChatGPT'
 
