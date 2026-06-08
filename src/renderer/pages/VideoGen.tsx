@@ -24,19 +24,20 @@ const fileToDataUrl = (f: File): Promise<string> =>
 
 function VideoTile({
   img,
+  port,
   selMode,
   selected,
   onToggleSel
 }: {
   img: ImportedImage
+  port: number
   selMode: boolean
   selected: boolean
   onToggleSel: () => void
 }) {
-  const [src, setSrc] = useState('')
-  useEffect(() => {
-    window.electronAPI.fs.readImage(img.path).then(setSrc).catch(() => setSrc(''))
-  }, [img.path])
+  // CSP media-src 가 data: 를 막으므로 로컬 미디어 서버 URL(Range 지원)로 재생/썸네일.
+  const name = img.path.split(/[\\/]/).pop() || ''
+  const src = port ? `http://127.0.0.1:${port}/media/${name}` : ''
   return (
     <div
       className={`igen-tile ${selMode && selected ? 'sel' : ''}`}
@@ -44,7 +45,22 @@ function VideoTile({
       onClick={() => (selMode ? onToggleSel() : window.electronAPI.fs.openPath(img.path))}
     >
       {src ? (
-        <video src={src} muted loop playsInline onMouseOver={(e) => e.currentTarget.play()} onMouseOut={(e) => e.currentTarget.pause()} />
+        <video
+          src={src}
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={(e) => {
+            try {
+              e.currentTarget.currentTime = 0.1
+            } catch {
+              /* 첫 프레임 시킹 실패 무시 */
+            }
+          }}
+          onMouseOver={(e) => e.currentTarget.play().catch(() => {})}
+          onMouseOut={(e) => e.currentTarget.pause()}
+        />
       ) : (
         <div className="igen-tile-empty">로딩…</div>
       )}
@@ -65,7 +81,12 @@ export default function VideoGen() {
   const [loadingN, setLoadingN] = useState(0)
   const [selMode, setSelMode] = useState(false)
   const [selIds, setSelIds] = useState<Set<string>>(new Set())
+  const [port, setPort] = useState(0)
   const pendingCount = useRef(0)
+
+  useEffect(() => {
+    window.electronAPI.bridge.getInfo().then((i) => setPort(i.port)).catch(() => {})
+  }, [])
 
   const savedIds = (): string[] => {
     try {
@@ -212,6 +233,7 @@ export default function VideoGen() {
               <VideoTile
                 key={v.id}
                 img={v}
+                port={port}
                 selMode={selMode}
                 selected={selIds.has(v.id)}
                 onToggleSel={() => toggleSelId(v.id)}
