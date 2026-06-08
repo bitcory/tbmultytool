@@ -24,11 +24,11 @@ export default function Gallery() {
   return (
     <div>
       <h1 className="h1">설정</h1>
-      <p className="sub">ChatGPT·Flow·Grok·SUNO에 로그인해 두면, 생성 기능이 백그라운드에서 자동 동작합니다. (결과는 갤러리에서 확인)</p>
+      <p className="sub">크롬에서 ChatGPT·Flow·Grok·SUNO에 미리 로그인해 두면, 생성이 확장을 통해 자동 동작합니다.</p>
 
-      {/* 소스 로그인 / 열기 */}
+      {/* 소스 로그인 (진짜 크롬에서) */}
       <div className="card">
-        <label style={{ marginBottom: 10, display: 'block' }}>① 사이트 로그인 (먼저 여기서 로그인해 두세요)</label>
+        <label style={{ marginBottom: 10, display: 'block' }}>① 크롬에서 사이트 로그인 (먼저 여기서 다 로그인해 두세요)</label>
         <div className="row">
           {SOURCES.map((s) => {
             const Icon = s.Icon
@@ -37,7 +37,7 @@ export default function Gallery() {
                 key={s.id}
                 className="btn secondary"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                onClick={() => window.electronAPI.fs.openWindow(s.url, s.label)}
+                onClick={() => window.electronAPI.fs.openExternal(s.url)}
               >
                 <Icon size={16} /> {s.label} 열기
               </button>
@@ -45,9 +45,9 @@ export default function Gallery() {
           })}
         </div>
         <p className="hint">
-          각 사이트를 한 번 열어 <b>로그인</b>해 두면 세션이 유지됩니다. 그래야 “이미지 생성기”·“멀티 영상 만들기”의
-          <b> 이미지(ChatGPT·Flow)·영상(Grok)·음악(SUNO)</b> 생성이 백그라운드에서 자동으로 동작합니다.
-          사이트에서 직접 만든 이미지는 <b>“📥 앱으로 보내기”</b>로도 가져올 수 있어요.
+          버튼을 누르면 <b>기본 브라우저(크롬)</b>에서 사이트가 열립니다. 거기서 <b>한 번 로그인</b>해 두면 세션이 유지돼요.
+          (봇 차단이 없는 진짜 크롬이라 구글 로그인도 정상 동작합니다.) 그러면 이미지·영상·음악 생성이 <b>크롬 확장</b>을 통해
+          자동으로 실행됩니다. ※ 크롬에 <b>TB MTOOL 확장</b>이 설치돼 있어야 합니다.
         </p>
       </div>
 
