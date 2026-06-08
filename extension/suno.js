@@ -54,22 +54,21 @@
     }
     return null
   }
-  function snapshotIds() {
+  // 문서 전체에서 /song/<id> 링크를 스캔 (clip-row 등 특정 셀렉터에 의존 안 함 — UI 변경에 견고)
+  function allSongIds() {
     const s = new Set()
-    for (const row of document.querySelectorAll('[data-testid="clip-row"]')) {
-      const a = row.querySelector('a[href*="/song/"]')
-      const m = a && (a.getAttribute('href') || '').match(/\/song\/([\w-]+)/)
+    for (const a of document.querySelectorAll('a[href*="/song/"]')) {
+      const m = (a.getAttribute('href') || '').match(/\/song\/([\w-]+)/)
       if (m) s.add(m[1])
     }
     return s
   }
+  function snapshotIds() {
+    return allSongIds()
+  }
   function newIds(before) {
     const out = []
-    for (const row of document.querySelectorAll('[data-testid="clip-row"]')) {
-      const a = row.querySelector('a[href*="/song/"]')
-      const m = a && (a.getAttribute('href') || '').match(/\/song\/([\w-]+)/)
-      if (m && !before.has(m[1]) && out.indexOf(m[1]) < 0) out.push(m[1])
-    }
+    for (const id of allSongIds()) if (!before.has(id) && out.indexOf(id) < 0) out.push(id)
     return out
   }
   function blobToDataUrl(blob) { return new Promise((rs, rj) => { const fr = new FileReader(); fr.onloadend = () => rs(fr.result); fr.onerror = rj; fr.readAsDataURL(blob) }) }
