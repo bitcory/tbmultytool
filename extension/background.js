@@ -212,7 +212,7 @@ const SITE_URLS = {
 
 let workerTabs = {} // { chatgpt: tabId, grok: tabId, ... }  (SW 재시작 대비 storage.session 저장)
 async function loadWorkerTabs() {
-  if (workerTabs && Object.keys(workerTabs).length) return workerTabs
+  // 항상 storage 를 source of truth 로 동기화 (부분 캐시로 인한 stale 방지)
   try {
     const s = await chrome.storage.session.get('workerTabs')
     workerTabs = s?.workerTabs || {}
