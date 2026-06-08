@@ -18,10 +18,10 @@ async function readVersion(dir: string): Promise<string | null> {
 
 /** 번들 확장 → Documents/TB MTOOL/extension 로 (버전 다르면) 복사. 배포 경로 반환. */
 export async function deployExtension(): Promise<string> {
-  // 패키징: resources/extension, 개발: 프로젝트루트/extension
+  // 패키징: resources/extension, 개발: out/main 기준 프로젝트루트/extension
   const src = app.isPackaged
     ? path.join(process.resourcesPath, 'extension')
-    : path.join(app.getAppPath(), 'extension')
+    : path.join(__dirname, '../../extension')
   const dest = path.join(app.getPath('documents'), 'TB MTOOL', 'extension')
   deployedDir = dest
   try {
