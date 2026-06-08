@@ -188,7 +188,9 @@
     return (
       qs('a[href="/imagine"]') ||
       qs('a[href$="/imagine"]') ||
-      qs('a[href*="grok.com/imagine"]') ||
+      qs('a[href*="imagine" i]') ||
+      qs('div.bg-surface-base ul li a[href*="imagine" i]') ||
+      qsa('div.bg-surface-base a, [class*="sidebar"] a').find((e) => /imagine/i.test(e.getAttribute('href') || '') || (e.innerText || e.textContent || '').trim() === 'Imagine') ||
       qsa('a, button').find((e) => {
         const t = (e.innerText || e.textContent || '').trim()
         return t === 'Imagine' || t === '이미지 생성' || (e.getAttribute('aria-label') || '') === 'Imagine'
