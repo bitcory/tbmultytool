@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Clapperboard, Film, Video, Wand2, GalleryHorizontalEnd, Settings as SettingsIcon } from 'lucide-react'
+import { Clapperboard, Film, Video, Music, Wand2, GalleryHorizontalEnd, Settings as SettingsIcon } from 'lucide-react'
 import { useStore } from './store'
 import Wizard from './pages/Wizard'
 import Gallery from './pages/Gallery'
 import GalleryGrid from './pages/GalleryGrid'
 import ImageGen from './pages/ImageGen'
 import VideoGen from './pages/VideoGen'
+import MusicGen from './pages/MusicGen'
 
 const NAV = [
   { id: 'imagegen', label: '이미지 생성기', Icon: Wand2 },
   { id: 'videogen', label: '비디오 생성기', Icon: Video },
+  { id: 'musicgen', label: '음악 만들기', Icon: Music },
   { id: 'wizard', label: '멀티 영상 만들기', Icon: Clapperboard },
   { id: 'gallerygrid', label: '갤러리', Icon: GalleryHorizontalEnd },
   { id: 'gallery', label: '설정', Icon: SettingsIcon }
@@ -47,6 +49,8 @@ export default function App() {
           <ImageGen />
         ) : view === 'videogen' ? (
           <VideoGen />
+        ) : view === 'musicgen' ? (
+          <MusicGen />
         ) : view === 'wizard' ? (
           <Wizard />
         ) : view === 'gallery' ? (

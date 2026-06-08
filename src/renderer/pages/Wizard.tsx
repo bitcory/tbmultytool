@@ -10,8 +10,12 @@ export default function Wizard() {
   // 진행 중인 생성 작업: 어떤 보드의 image/video 요청인지
   const pending = useRef<{ label: string; kind: 'image' | 'video' } | null>(null)
   const musicActive = useRef(false)
+  // 음악(suno)은 확장 경로에서 mp3 가 onImported(오디오)로 도착 → 여기 모았다가 결과로 전달
+  const musicTracks = useRef<{ id: string; url: string; filename: string }[]>([])
+  const portRef = useRef(0)
 
   useEffect(() => {
+    window.electronAPI.bridge.getInfo().then((i) => (portRef.current = i.port)).catch(() => {})
     const post = (msg: unknown) => iframeRef.current?.contentWindow?.postMessage(msg, '*')
 
     // iframe → 앱: 생성 요청 (이미지 / 영상)
@@ -34,6 +38,7 @@ export default function Wizard() {
         }
       } else if (m.type === 'generate-music') {
         musicActive.current = true
+        musicTracks.current = []
         const r = await window.electronAPI.bridge.generateMusic({
           mode: m.mode,
           description: m.description,
@@ -43,7 +48,9 @@ export default function Wizard() {
           title: m.title
         })
         musicActive.current = false
-        post({ source: 'avs-app', type: 'music-result', ok: r.ok, tracks: r.tracks, message: r.message })
+        // 확장 경로: 트랙은 onImported 로 모은 것. (구 경로 호환: r.tracks 있으면 그것도)
+        const tracks = r.tracks && r.tracks.length ? r.tracks : musicTracks.current
+        post({ source: 'avs-app', type: 'music-result', ok: r.ok && tracks.length > 0, tracks, message: r.message })
       }
     }
     window.addEventListener('message', onMsg)
@@ -61,6 +68,12 @@ export default function Wizard() {
 
     // 앱 → iframe: 새 미디어 도착 → 요청한 보드의 image/video 슬롯으로
     const off = window.electronAPI.bridge.onImported(async (img) => {
+      // 음악(suno) mp3 도착 → 트랙 목록에 모음 (미디어 서버 URL)
+      if (musicActive.current && /\.(mp3|wav)$/i.test(img.path)) {
+        const name = img.path.split(/[\\/]/).pop() || ''
+        musicTracks.current.push({ id: img.id, url: `http://127.0.0.1:${portRef.current}/media/${name}`, filename: img.filename })
+        return
+      }
       const p = pending.current
       if (!p) return
       pending.current = null

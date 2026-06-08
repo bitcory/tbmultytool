@@ -206,7 +206,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ChatGPT 탭은 상시 유지(하트비트). 그 탭이 /pending-sources 를 보고 다른 사이트 탭을 요청.
 const SITE_URLS = {
   chatgpt: 'https://chatgpt.com/',
-  grok: 'https://grok.com/imagine'
+  grok: 'https://grok.com/imagine',
+  suno: 'https://suno.com/create'
 }
 
 let workerTabs = {} // { chatgpt: tabId, grok: tabId, ... }  (SW 재시작 대비 storage.session 저장)

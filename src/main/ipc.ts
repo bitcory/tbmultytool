@@ -13,7 +13,6 @@ import type {
   MusicGenPayload,
   MusicTrack
 } from '@shared/types'
-import { sunoMusicScript } from './automateSuno'
 import { IPC } from '@shared/types'
 import { keysStatus, loadKeys, saveKeys } from './secrets'
 import { generateScript } from './services/script'
@@ -400,55 +399,8 @@ export function registerIpc(): void {
       _e,
       payload: MusicGenPayload
     ): Promise<{ ok: boolean; message?: string; tracks?: MusicTrack[] }> => {
-      const win = openEmbedded(SOURCE_URL.suno, 'SUNO', true)
-      win.webContents.setAudioMuted(true)
-      if (!win.webContents.getURL().includes('/create')) {
-        win.webContents.loadURL(SOURCE_URL.suno)
-      }
-      if (win.webContents.isLoadingMainFrame()) {
-        await new Promise<void>((res) => win.webContents.once('did-finish-load', () => res()))
-      }
-      await wait(1800) // SPA 초기화 여유
-
-      const r = (await win.webContents
-        .executeJavaScript(sunoMusicScript(payload.mode, payload))
-        .catch((e) => ({ ok: false, error: String(e?.message || e) }))) as {
-        ok?: boolean
-        error?: string
-        songIds?: string[]
-      }
-      if (!r?.ok || !r.songIds?.length) {
-        return { ok: false, message: 'SUNO 생성 실패: ' + (r?.error || '곡 없음') }
-      }
-
-      // 각 songId 의 mp3 를 cdn 에서 재시도 폴링하며 받아 저장
-      const { port } = getBridgeInfo()
-      const tracks: MusicTrack[] = []
-      for (const songId of r.songIds.slice(0, 2)) {
-        const url = `https://cdn1.suno.ai/${songId}.mp3`
-        let imported: { id: string; filename: string } | null = null
-        for (let i = 0; i < 50; i++) {
-          // 곡 완성까지 ~수 분: 200 이 될 때까지 재시도
-          try {
-            const img = await importImage({ source: 'suno', url, filename: songId + '.mp3' })
-            imported = img
-            break
-          } catch {
-            await wait(5000)
-          }
-        }
-        if (imported) {
-          tracks.push({
-            id: imported.id,
-            url: `http://127.0.0.1:${port}/media/${imported.id}.mp3`,
-            filename: imported.filename
-          })
-        } else {
-          console.warn('[AVS] SUNO mp3 회수 실패:', songId)
-        }
-      }
-      if (!tracks.length) return { ok: false, message: '음악 파일을 받지 못했습니다 (시간 초과)' }
-      return { ok: true, tracks }
+      // 사용자 크롬의 확장에서 실행(임베드 창 봇벽 회피). 결과 mp3 는 onImported(오디오)로 도착.
+      return await enqueueJob({ source: 'suno', prompt: '', musicPayload: payload })
     }
   )
 

@@ -100,6 +100,7 @@ export interface BridgeJob {
   referenceImages?: string[] // I2I 참조 이미지 dataURL 배열
   imageDataUrl?: string // Grok 이미지→영상: 입력 이미지 dataURL
   videoSettings?: VideoGenSettings // Grok: 길이/해상도/비율
+  musicPayload?: MusicGenPayload // Suno: 음악 생성 입력
 }
 
 /** 로컬 이미지 수신 서버 정보 (확장이 접속할 주소) */
