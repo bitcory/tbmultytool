@@ -460,20 +460,33 @@ export default function ImageGen() {
             ))}
           </div>
 
-          {generating ? (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="igen-go" disabled style={{ flex: 1 }}>
-                <Loader2 size={16} className="igen-spin" /> 생성 중…
-              </button>
-              <button className="igen-go danger" onClick={stop} title="진행 중인 생성을 모두 정지">
-                <Square size={15} /> 정지
-              </button>
-            </div>
-          ) : (
-            <button className="igen-go" onClick={run}>
-              <Sparkles size={16} /> 생성하기 {prompts.length > 1 ? `(${prompts.length}장)` : ''}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="igen-go"
+              onClick={run}
+              disabled={generating}
+              style={{ flex: 1, width: 'auto', whiteSpace: 'nowrap' }}
+            >
+              {generating ? (
+                <>
+                  <Loader2 size={16} className="igen-spin" /> 생성 중…
+                </>
+              ) : (
+                <>
+                  <Sparkles size={16} /> 이미지 생성 {prompts.length > 1 ? `(${prompts.length}장)` : ''}
+                </>
+              )}
             </button>
-          )}
+            <button
+              className="igen-go danger"
+              onClick={stop}
+              disabled={!generating}
+              style={{ flex: '0 0 auto', width: 'auto', whiteSpace: 'nowrap', padding: '12px 18px' }}
+              title="진행 중인 생성을 모두 정지"
+            >
+              <Square size={15} /> 정지
+            </button>
+          </div>
           {msg && <div className={`igen-msg ${msg === '완료' ? 'ok' : ''}`}>{msg}</div>}
           <p className="igen-note">
             ※ {source === 'chatgpt' ? 'ChatGPT' : 'Google Flow'} 로그인 필요. 프롬프트 {prompts.length || 0}개 → 창 {prompts.length || 0}개로 병렬 생성됩니다.
