@@ -12,6 +12,7 @@ import { IPC } from '@shared/types'
 
 const api: ElectronAPI = {
   getVersion: () => ipcRenderer.invoke(IPC.appVersion),
+  getExtensionDir: () => ipcRenderer.invoke(IPC.appExtensionDir),
   keys: {
     getStatus: () => ipcRenderer.invoke(IPC.keysStatus),
     set: (keys: ApiKeys) => ipcRenderer.invoke(IPC.keysSet, keys),

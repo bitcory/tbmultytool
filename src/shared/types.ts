@@ -123,6 +123,7 @@ export interface ProgressEvent {
 /** IPC 채널 이름 상수 */
 export const IPC = {
   appVersion: 'app:version',
+  appExtensionDir: 'app:extensionDir',
   keysGet: 'keys:get',
   keysSet: 'keys:set',
   keysStatus: 'keys:status',
@@ -156,6 +157,8 @@ export const IPC = {
 export interface ElectronAPI {
   /** 현재 앱 버전 (package.json version) */
   getVersion: () => Promise<string>
+  /** 번들 확장이 배포된 폴더 경로 (크롬에 압축해제 로드용) */
+  getExtensionDir: () => Promise<string>
   keys: {
     getStatus: () => Promise<Record<keyof ApiKeys, boolean>>
     set: (keys: ApiKeys) => Promise<void>

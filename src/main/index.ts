@@ -3,6 +3,7 @@ import path from 'path'
 import { autoUpdater } from 'electron-updater'
 import { registerIpc } from './ipc'
 import { startImageBridge } from './imageBridge'
+import { deployExtension } from './extensionDeploy'
 import { IPC } from '@shared/types'
 
 let mainWindow: BrowserWindow | null = null
@@ -54,6 +55,9 @@ app.whenReady().then(async () => {
 
   registerIpc()
   createWindow()
+
+  // 번들된 크롬 확장을 고정 폴더에 배포(업데이트 시 자동 갱신)
+  deployExtension().catch((e) => console.warn('[extDeploy] 시작 실패:', e))
 
   // 크롬 확장 → 앱 이미지 수신 서버 시작. 새 이미지가 오면 렌더러로 push.
   try {

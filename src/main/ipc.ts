@@ -32,6 +32,7 @@ import {
   setSiteOpener
 } from './imageBridge'
 import { grabberScript } from './injectGrabber'
+import { deployExtension } from './extensionDeploy'
 import { chatgptGenerateScript } from './automateChatgpt'
 import { grokVideoScript } from './automateGrok'
 import {
@@ -244,6 +245,7 @@ export function registerIpc(): void {
 
   // --- 앱 정보 ---
   ipcMain.handle(IPC.appVersion, () => app.getVersion())
+  ipcMain.handle(IPC.appExtensionDir, () => deployExtension())
 
   // --- API 키 ---
   ipcMain.handle(IPC.keysStatus, () => keysStatus())
