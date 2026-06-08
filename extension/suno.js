@@ -79,7 +79,8 @@
     for (let i = 0; i < 60; i++) {
       await throwIfCanceled(jobId)
       try {
-        const res = await fetch(url, { credentials: 'include' })
+        // 공개 CDN — 쿠키 없이(omit). credentials:include 면 ACAO:* 와 충돌해 CORS 차단됨.
+        const res = await fetch(url, { credentials: 'omit' })
         if (res.ok) {
           const blob = await res.blob()
           if (blob.size > 1000) return await blobToDataUrl(blob)
