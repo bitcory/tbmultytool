@@ -194,7 +194,9 @@
 
     report('로그인 확인 중…')
     if (!(await isLoggedIn())) {
-      throw new Error('ChatGPT 로그인 필요 — 크롬에서 chatgpt.com 에 로그인한 뒤 다시 시도하세요')
+      // 작업용 탭(이 탭)을 앞으로 띄워 사용자가 바로 로그인하게
+      send({ type: 'need-login' })
+      throw new Error('ChatGPT 로그인 필요 — 방금 띄운 크롬 탭에서 로그인한 뒤 다시 시도하세요')
     }
 
     report('ChatGPT 준비 중…')
@@ -270,6 +272,19 @@
     }
   }
 
-  setInterval(tick, 3000)
-  log('TB MTOOL 자동화 대기 시작 (ChatGPT)')
+  // 작업용 탭에서만 자동화를 돌린다 (사용자가 직접 쓰는 ChatGPT 탭은 건드리지 않음).
+  ;(async () => {
+    let isWorker = false
+    for (let i = 0; i < 10; i++) {
+      const r = await send({ type: 'is-worker' })
+      if (r && r.worker) { isWorker = true; break }
+      await sleep(1000) // 확장 로드 직후 작업용 탭 id 미정 대비 재시도
+    }
+    if (!isWorker) {
+      log('이 탭은 작업용 탭이 아님 — 자동화 비활성 (사용자 탭 보호)')
+      return
+    }
+    setInterval(tick, 3000)
+    log('TB MTOOL 자동화 대기 시작 (ChatGPT 작업용 탭)')
+  })()
 })()

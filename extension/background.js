@@ -95,7 +95,26 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   )
 })
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // 로그인 필요: 작업용 탭을 앞으로 띄워 사용자가 로그인하게 한다
+  if (msg?.type === 'need-login') {
+    try {
+      const tabId = sender?.tab?.id
+      const winId = sender?.tab?.windowId
+      if (tabId != null) chrome.tabs.update(tabId, { active: true })
+      if (winId != null) chrome.windows.update(winId, { focused: true })
+    } catch (e) {}
+    sendResponse({ ok: true })
+    return true
+  }
+  // 이 탭이 자동화 작업용 탭인지 확인 (작업용 탭만 폴링/실행 → 사용자 탭 보호)
+  if (msg?.type === 'is-worker') {
+    ;(async () => {
+      const wid = await getWorkerTabId()
+      sendResponse({ worker: sender?.tab?.id != null && sender.tab.id === wid })
+    })()
+    return true
+  }
   if (msg?.type === 'image') {
     sendToApp(msg)
       .then((j) => sendResponse({ ok: true, id: j.id }))
@@ -158,3 +177,55 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   return false
 })
+
+// ── 작업용 탭 자동관리 ─────────────────────────────────────────────────────
+// 확장이 켜지고 앱이 실행 중이면 ChatGPT "작업용 탭"을 백그라운드(고정)로 띄워둔다.
+// 그 탭의 content script 만 자동화를 돌린다(사용자가 직접 쓰는 탭엔 끼어들지 않음).
+// 사용자가 닫아도 주기 점검으로 자가복구.
+
+// 작업용 탭 id (SW 재시작 대비 storage.session 에도 저장)
+let workerTabId = null
+async function getWorkerTabId() {
+  if (workerTabId != null) return workerTabId
+  try {
+    const s = await chrome.storage.session.get('workerTabId')
+    workerTabId = s?.workerTabId ?? null
+  } catch (e) {}
+  return workerTabId
+}
+async function setWorkerTabId(id) {
+  workerTabId = id
+  try {
+    await chrome.storage.session.set({ workerTabId: id })
+  } catch (e) {}
+}
+
+async function ensureWorkerTab() {
+  try {
+    const base = await findApp()
+    if (!base) return // 앱이 꺼져 있으면 탭 안 띄움(불필요한 탭 방지)
+    const wid = await getWorkerTabId()
+    if (wid != null) {
+      const existing = await chrome.tabs.get(wid).catch(() => null)
+      if (existing) return // 작업용 탭 아직 살아있음
+    }
+    const tab = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: false, pinned: true })
+    await setWorkerTabId(tab.id)
+    console.log('[AVS] ChatGPT 작업용 탭 자동 생성 id=' + tab.id)
+  } catch (e) {
+    console.warn('[AVS] 작업용 탭 생성 실패:', e)
+  }
+}
+
+// 작업용 탭이 닫히면 id 비움(다음 점검에 재생성)
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  if (tabId === (await getWorkerTabId())) await setWorkerTabId(null)
+})
+
+chrome.runtime.onInstalled.addListener(() => ensureWorkerTab())
+chrome.runtime.onStartup.addListener(() => ensureWorkerTab())
+chrome.alarms.create('ensure-worker-tab', { periodInMinutes: 1 })
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === 'ensure-worker-tab') ensureWorkerTab()
+})
+ensureWorkerTab()
