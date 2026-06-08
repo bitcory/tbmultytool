@@ -123,6 +123,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     })()
     return true
   }
+  // 실행 중인 작업이 취소됐는지 확인 (자동화 루프가 중간중간 폴링)
+  if (msg?.type === 'check-cancel') {
+    ;(async () => {
+      try {
+        const base = await findApp()
+        if (!base) return sendResponse({ canceled: false })
+        const r = await fetch(base + '/job-canceled?id=' + encodeURIComponent(msg.id || ''))
+        const j = await r.json().catch(() => ({ canceled: false }))
+        sendResponse({ canceled: !!j.canceled })
+      } catch (e) {
+        sendResponse({ canceled: false })
+      }
+    })()
+    return true
+  }
   // 작업 진행/완료/실패 보고를 앱으로 중계
   if (msg?.type === 'job-status') {
     ;(async () => {

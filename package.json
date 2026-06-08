@@ -1,6 +1,6 @@
 {
   "name": "ai-video-studio",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "AI 영상 제작을 쉽고 빠르게 TB M TOOL",
   "main": "out/main/index.js",
   "author": "toolb",

@@ -70,6 +70,26 @@ function finishJob(id: string, ok: boolean, message?: string): void {
   p.resolve({ ok, message })
 }
 
+// 취소된 작업 id 집합 — 확장(실행 중인 content script)이 /job-canceled 로 확인해 즉시 중단.
+const canceledJobs = new Set<string>()
+
+/** 모든 대기/진행 작업 취소: 큐 비우고, 실행 중인 작업은 취소 표시(확장이 폴링해 중단). */
+export function cancelAllJobs(): void {
+  while (jobQueue.length) {
+    const p = jobQueue.shift()!
+    clearTimeout(p.timer)
+    canceledJobs.add(p.job.id) // 실행 중일 수 있으니 취소 표시
+    p.resolve({ ok: false, message: '취소됨' })
+  }
+  jobStatusNotify('생성을 정지했습니다.')
+  // 메모리 보호: 오래된 취소 표시 정리(다음 작업 폴링에 영향 없도록 잠시 후)
+  if (canceledJobs.size > 200) canceledJobs.clear()
+}
+
+function isJobCanceled(id: string): boolean {
+  return canceledJobs.has(id)
+}
+
 const MIME_EXT: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -297,6 +317,12 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
     if (req.method === 'GET' && req.url && req.url.startsWith('/poll')) {
       const q = new URL(req.url, 'http://127.0.0.1').searchParams.get('source') || ''
       json(res, 200, { ok: true, job: takeJob(q) })
+      return
+    }
+    // 실행 중인 작업이 취소됐는지 확인 — /job-canceled?id=xxx (확장이 폴링해 즉시 중단)
+    if (req.method === 'GET' && req.url && req.url.startsWith('/job-canceled')) {
+      const id = new URL(req.url, 'http://127.0.0.1').searchParams.get('id') || ''
+      json(res, 200, { ok: true, canceled: isJobCanceled(id) })
       return
     }
     // 확장이 작업 진행/완료/실패를 보고 — { id, status:'progress'|'done'|'error', message? }

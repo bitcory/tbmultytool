@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Clapperboard, Sparkles, ImageIcon, Loader2, Type, Images as ImagesIcon, X, RotateCw, Download, Check, CheckSquare, Trash2 } from 'lucide-react'
+import { MessageSquare, Clapperboard, Sparkles, ImageIcon, Loader2, Type, Images as ImagesIcon, X, RotateCw, Download, Check, CheckSquare, Trash2, Square } from 'lucide-react'
 import type { ImageSource, ImportedImage } from '@shared/types'
 
 const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '3:4']
@@ -211,6 +211,15 @@ export default function ImageGen() {
       setGenerating(false)
       setMsg(r.message || '생성 실패')
     }
+  }
+
+  // 정지: 진행/대기 중인 모든 확장 작업 취소 (반복 시도로 봇 오인 방지)
+  const stop = async () => {
+    await window.electronAPI.bridge.cancel()
+    pendingCount.current = 0
+    setGenerating(false)
+    setLoadingN(0)
+    setMsg('정지했습니다.')
   }
 
   return (
@@ -451,17 +460,20 @@ export default function ImageGen() {
             ))}
           </div>
 
-          <button className="igen-go" onClick={run} disabled={generating}>
-            {generating ? (
-              <>
+          {generating ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="igen-go" disabled style={{ flex: 1 }}>
                 <Loader2 size={16} className="igen-spin" /> 생성 중…
-              </>
-            ) : (
-              <>
-                <Sparkles size={16} /> 생성하기 {prompts.length > 1 ? `(${prompts.length}장)` : ''}
-              </>
-            )}
-          </button>
+              </button>
+              <button className="igen-go danger" onClick={stop} title="진행 중인 생성을 모두 정지">
+                <Square size={15} /> 정지
+              </button>
+            </div>
+          ) : (
+            <button className="igen-go" onClick={run}>
+              <Sparkles size={16} /> 생성하기 {prompts.length > 1 ? `(${prompts.length}장)` : ''}
+            </button>
+          )}
           {msg && <div className={`igen-msg ${msg === '완료' ? 'ok' : ''}`}>{msg}</div>}
           <p className="igen-note">
             ※ {source === 'chatgpt' ? 'ChatGPT' : 'Google Flow'} 로그인 필요. 프롬프트 {prompts.length || 0}개 → 창 {prompts.length || 0}개로 병렬 생성됩니다.

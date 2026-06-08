@@ -219,6 +219,7 @@
     let stableUrl = null, stableCount = 0
     for (let i = 0; i < 160; i++) {
       await sleep(1500)
+      if (i % 4 === 0) await throwIfCanceled(job.id) // 정지 버튼 확인(약 6초마다)
       if (i > 0 && i % 8 === 0) report('이미지 생성 대기 중… (' + Math.round(i * 1.5) + '초)')
       const urls = lastTurnImageUrls()
       if (urls.length && !isStreaming()) {
@@ -241,6 +242,12 @@
   // ── 폴링 루프 ───────────────────────────────────────────────────────────
   const send = (msg) => new Promise((resolve) => { try { chrome.runtime.sendMessage(msg, (r) => resolve(r)) } catch (e) { resolve(null) } })
   let busy = false
+
+  // 앱의 정지 버튼이 눌렸는지 확인 (실행 중 중간중간 호출). 취소면 throw 로 즉시 중단.
+  async function throwIfCanceled(jobId) {
+    const r = await send({ type: 'check-cancel', id: jobId })
+    if (r && r.canceled) throw new Error('정지됨 (사용자 취소)')
+  }
 
   async function tick() {
     if (busy) return

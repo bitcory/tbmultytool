@@ -46,6 +46,7 @@ const api: ElectronAPI = {
     generateBatch: (source, items, aspect) =>
       ipcRenderer.invoke(IPC.bridgeGenerateBatch, source, items, aspect),
     exportZip: (items, defaultName) => ipcRenderer.invoke(IPC.bridgeExportZip, items, defaultName),
+    cancel: () => ipcRenderer.invoke(IPC.bridgeCancel),
     onImported: (cb: (img: ImportedImage) => void) => {
       const listener = (_e: unknown, img: ImportedImage) => cb(img)
       ipcRenderer.on(IPC.imageImported, listener)

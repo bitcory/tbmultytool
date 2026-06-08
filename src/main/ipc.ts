@@ -28,7 +28,8 @@ import {
   importImage,
   setDebugEval,
   enqueueJob,
-  setJobStatusListener
+  setJobStatusListener,
+  cancelAllJobs
 } from './imageBridge'
 import { grabberScript } from './injectGrabber'
 import { chatgptGenerateScript } from './automateChatgpt'
@@ -304,6 +305,8 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.bridgeRemove, (_e, ids: string[]) => removeImported(ids))
   // 임베드 창의 grabber가 IPC로 직접 이미지를 보냄 (페이지 CSP 우회)
   ipcMain.handle(IPC.bridgeImport, (_e, payload) => importImage(payload))
+  // 정지 버튼: 진행/대기 중인 확장 생성 작업 전체 취소
+  ipcMain.handle(IPC.bridgeCancel, () => cancelAllJobs())
 
   // 임베드 창 자동화: 프롬프트 입력 → 생성 → 자동 회수 (실험적)
   ipcMain.handle(

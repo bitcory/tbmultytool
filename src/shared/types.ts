@@ -142,6 +142,7 @@ export const IPC = {
   bridgeGenerateVideo: 'bridge:generateVideo', // Grok 이미지→영상 자동화
   bridgeGenerateMusic: 'bridge:generateMusic', // SUNO 음악 생성 자동화
   bridgeGenerateBatch: 'bridge:generateBatch', // 멀티 프롬프트 배치 이미지 생성(T2I/I2I)
+  bridgeCancel: 'bridge:cancel', // 진행/대기 중인 확장 생성 작업 전체 취소
   bridgeExportZip: 'bridge:exportZip', // 이미지들을 순서대로 zip 으로 저장
   progress: 'progress', // 이벤트 채널
   imageImported: 'bridge:imageImported', // 이벤트 채널 (확장→앱 이미지 도착)
@@ -212,6 +213,8 @@ export interface ElectronAPI {
       items: { path: string; name: string }[],
       defaultName?: string
     ) => Promise<{ ok: boolean; path?: string; message?: string }>
+    /** 진행/대기 중인 모든 생성 작업 취소(정지 버튼) */
+    cancel: () => Promise<void>
     /** 새 이미지가 도착할 때마다 호출 */
     onImported: (cb: (img: ImportedImage) => void) => () => void
     /** 자동 생성 진행 상황 메시지 */
