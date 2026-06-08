@@ -253,6 +253,11 @@
 
   async function tick() {
     if (busy) return
+    // 코디네이터: 다른 사이트에 작업이 있으면 그 사이트 작업용 탭을 띄우도록 요청
+    const ps = await send({ type: 'pending-sources' })
+    if (ps && ps.sources) {
+      for (const s of ps.sources) if (s !== 'chatgpt') send({ type: 'ensure-worker', site: s })
+    }
     const r = await send({ type: 'poll', source: 'chatgpt' })
     const job = r && r.job
     if (!job) return
@@ -281,7 +286,7 @@
   ;(async () => {
     let isWorker = false
     for (let i = 0; i < 10; i++) {
-      const r = await send({ type: 'is-worker' })
+      const r = await send({ type: 'is-worker', site: 'chatgpt' })
       if (r && r.worker) { isWorker = true; break }
       await sleep(1000) // 확장 로드 직후 작업용 탭 id 미정 대비 재시도
     }

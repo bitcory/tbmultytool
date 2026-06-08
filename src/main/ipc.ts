@@ -366,6 +366,14 @@ export function registerIpc(): void {
       settings?: VideoGenSettings
     ): Promise<{ ok: boolean; message?: string }> => {
       if (!imageDataUrl) return { ok: false, message: '먼저 이미지를 생성하세요.' }
+      // 사용자 크롬의 확장에서 실행(임베드 창 봇벽 회피). 큐에 넣고 결과를 기다린다.
+      return await enqueueJob({
+        source: 'grok',
+        prompt: prompt || '',
+        imageDataUrl,
+        videoSettings: settings || {}
+      })
+
       const win = openEmbedded(SOURCE_URL.grok, 'Grok', true)
       win.webContents.setAudioMuted(true) // 숨김 자동화 창 소리 차단
       // 반드시 /imagine 에서 시작 (영상/이미지 생성 진입점)

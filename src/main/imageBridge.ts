@@ -62,6 +62,13 @@ function takeJob(source: string): BridgeJob | null {
   return p.job
 }
 
+// 아직 안 가져간(untaken) 작업이 있는 소스 목록 — 확장이 해당 사이트 작업용 탭을 띄울지 판단.
+function pendingSources(): string[] {
+  const set = new Set<string>()
+  for (const p of jobQueue) if (!p.taken) set.add(p.job.source)
+  return [...set]
+}
+
 function finishJob(id: string, ok: boolean, message?: string): void {
   const i = jobQueue.findIndex((p) => p.job.id === id)
   if (i < 0) return
@@ -317,6 +324,11 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
     if (req.method === 'GET' && req.url && req.url.startsWith('/poll')) {
       const q = new URL(req.url, 'http://127.0.0.1').searchParams.get('source') || ''
       json(res, 200, { ok: true, job: takeJob(q) })
+      return
+    }
+    // 작업 대기 중인 소스 목록 — /pending-sources (확장이 사이트별 작업용 탭 띄울지 판단)
+    if (req.method === 'GET' && req.url && req.url.startsWith('/pending-sources')) {
+      json(res, 200, { ok: true, sources: pendingSources() })
       return
     }
     // 실행 중인 작업이 취소됐는지 확인 — /job-canceled?id=xxx (확장이 폴링해 즉시 중단)

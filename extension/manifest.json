@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TB MTOOL Companion",
-  "version": "0.1.3",
-  "description": "TB MTOOL 앱의 생성 작업을 사용자 크롬에서 자동 실행하고, 만든 이미지를 앱으로 보냅니다 (로컬 전용).",
+  "version": "0.1.4",
+  "description": "TB MTOOL 앱의 생성 작업(ChatGPT·Grok 등)을 사용자 크롬에서 자동 실행하고, 결과를 앱으로 보냅니다 (로컬 전용).",
   "permissions": ["storage", "contextMenus", "tabs", "alarms"],
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -13,7 +13,10 @@
     "https://labs.google/*",
     "https://*.googleusercontent.com/*",
     "https://*.usercontent.google.com/*",
-    "https://*.gstatic.com/*"
+    "https://*.gstatic.com/*",
+    "https://grok.com/*",
+    "https://*.grok.com/*",
+    "https://*.x.ai/*"
   ],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
@@ -29,6 +32,11 @@
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
       "js": ["automate.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://grok.com/*"],
+      "js": ["grok.js"],
       "run_at": "document_idle"
     }
   ],
