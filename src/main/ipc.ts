@@ -1,4 +1,4 @@
-import { dialog, ipcMain, shell, BrowserWindow } from 'electron'
+import { app, dialog, ipcMain, shell, BrowserWindow } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
 import os from 'os'
@@ -240,6 +240,9 @@ export function registerIpc(): void {
     }
     return await win.webContents.executeJavaScript(js)
   })
+
+  // --- 앱 정보 ---
+  ipcMain.handle(IPC.appVersion, () => app.getVersion())
 
   // --- API 키 ---
   ipcMain.handle(IPC.keysStatus, () => keysStatus())

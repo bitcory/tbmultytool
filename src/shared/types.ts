@@ -119,6 +119,7 @@ export interface ProgressEvent {
 
 /** IPC 채널 이름 상수 */
 export const IPC = {
+  appVersion: 'app:version',
   keysGet: 'keys:get',
   keysSet: 'keys:set',
   keysStatus: 'keys:status',
@@ -149,6 +150,8 @@ export const IPC = {
 
 /** preload가 contextBridge로 노출하는 API 형태 */
 export interface ElectronAPI {
+  /** 현재 앱 버전 (package.json version) */
+  getVersion: () => Promise<string>
   keys: {
     getStatus: () => Promise<Record<keyof ApiKeys, boolean>>
     set: (keys: ApiKeys) => Promise<void>
