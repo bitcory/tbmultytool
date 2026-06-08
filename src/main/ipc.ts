@@ -28,7 +28,8 @@ import {
   setDebugEval,
   enqueueJob,
   setJobStatusListener,
-  cancelAllJobs
+  cancelAllJobs,
+  setSiteOpener
 } from './imageBridge'
 import { grabberScript } from './injectGrabber'
 import { chatgptGenerateScript } from './automateChatgpt'
@@ -298,6 +299,11 @@ export function registerIpc(): void {
   // --- 이미지 브릿지 (확장 ↔ 앱) ---
   // 확장 작업(job) 진행 메시지를 렌더러로 전달
   setJobStatusListener(emitProgress)
+  // 작업이 들어왔는데 해당 사이트 탭이 없으면 진짜 크롬에서 사이트를 연다(확장이 거기서 처리).
+  setSiteOpener((source) => {
+    const url = (SOURCE_URL as Record<string, string>)[source]
+    if (url) shell.openExternal(url)
+  })
   ipcMain.handle(IPC.bridgeInfo, () => getBridgeInfo())
   ipcMain.handle(IPC.bridgeList, () => listImported())
   ipcMain.handle(IPC.bridgeClear, () => clearImported())

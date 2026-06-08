@@ -38,6 +38,15 @@ export function setJobStatusListener(cb: (message: string) => void): void {
   jobStatusNotify = cb
 }
 
+// 소스별 마지막 폴링 시각 — 확장 탭이 그 사이트를 폴링 중이면 새 탭 안 엶.
+const lastPoll: Record<string, number> = {}
+// 작업이 들어왔는데 해당 사이트를 폴링하는 탭이 없으면 진짜 크롬에서 사이트를 연다.
+let siteOpener: (source: string) => void = () => {}
+export function setSiteOpener(fn: (source: string) => void): void {
+  siteOpener = fn
+}
+const POLL_FRESH_MS = 8000
+
 /** 작업을 큐에 넣고, 확장이 완료/실패를 보고할 때 resolve 되는 Promise 를 반환. */
 export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<{ ok: boolean; message?: string }> {
   return new Promise((resolve) => {
@@ -52,6 +61,11 @@ export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<{ ok: boolean;
     }, JOB_TIMEOUT_MS)
     jobQueue.push({ job, resolve, timer, taken: false })
     jobStatusNotify(`크롬 확장에 ${job.source} 생성 작업 전달 — 크롬 탭에서 실행 대기 중…`)
+    // 해당 사이트를 폴링하는 탭이 없으면(최근 폴링 없음) 크롬에서 사이트를 연다.
+    if (Date.now() - (lastPoll[job.source] || 0) > POLL_FRESH_MS) {
+      siteOpener(job.source)
+      lastPoll[job.source] = Date.now() // 디바운스: 탭 로딩 동안 중복 오픈 방지
+    }
   })
 }
 
@@ -60,13 +74,6 @@ function takeJob(source: string): BridgeJob | null {
   if (!p) return null
   p.taken = true
   return p.job
-}
-
-// 아직 안 가져간(untaken) 작업이 있는 소스 목록 — 확장이 해당 사이트 작업용 탭을 띄울지 판단.
-function pendingSources(): string[] {
-  const set = new Set<string>()
-  for (const p of jobQueue) if (!p.taken) set.add(p.job.source)
-  return [...set]
 }
 
 function finishJob(id: string, ok: boolean, message?: string): void {
@@ -323,12 +330,8 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
     // 확장이 다음 작업을 가져감 — /poll?source=chatgpt
     if (req.method === 'GET' && req.url && req.url.startsWith('/poll')) {
       const q = new URL(req.url, 'http://127.0.0.1').searchParams.get('source') || ''
+      if (q) lastPoll[q] = Date.now() // 그 사이트 탭이 살아서 폴링 중임을 기록
       json(res, 200, { ok: true, job: takeJob(q) })
-      return
-    }
-    // 작업 대기 중인 소스 목록 — /pending-sources (확장이 사이트별 작업용 탭 띄울지 판단)
-    if (req.method === 'GET' && req.url && req.url.startsWith('/pending-sources')) {
-      json(res, 200, { ok: true, sources: pendingSources() })
       return
     }
     // 실행 중인 작업이 취소됐는지 확인 — /job-canceled?id=xxx (확장이 폴링해 즉시 중단)

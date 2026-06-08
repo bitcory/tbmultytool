@@ -286,16 +286,6 @@
     }
   }
 
-  // 작업용 탭에서만 자동화 (사용자가 직접 쓰는 Grok 탭은 건드리지 않음)
-  ;(async () => {
-    let isWorker = false
-    for (let i = 0; i < 10; i++) {
-      const r = await send({ type: 'is-worker', site: 'grok' })
-      if (r && r.worker) { isWorker = true; break }
-      await sleep(1000)
-    }
-    if (!isWorker) { log('이 탭은 Grok 작업용 탭이 아님 — 자동화 비활성'); return }
-    setInterval(tick, 3000)
-    log('TB MTOOL 자동화 대기 시작 (Grok 작업용 탭)')
-  })()
+  setInterval(tick, 3000)
+  log('TB MTOOL 자동화 대기 시작 (Grok)')
 })()

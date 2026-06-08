@@ -253,11 +253,6 @@
 
   async function tick() {
     if (busy) return
-    // 코디네이터: 다른 사이트에 작업이 있으면 그 사이트 작업용 탭을 띄우도록 요청
-    const ps = await send({ type: 'pending-sources' })
-    if (ps && ps.sources) {
-      for (const s of ps.sources) if (s !== 'chatgpt') send({ type: 'ensure-worker', site: s })
-    }
     const r = await send({ type: 'poll', source: 'chatgpt' })
     const job = r && r.job
     if (!job) return
@@ -282,19 +277,6 @@
     }
   }
 
-  // 작업용 탭에서만 자동화를 돌린다 (사용자가 직접 쓰는 ChatGPT 탭은 건드리지 않음).
-  ;(async () => {
-    let isWorker = false
-    for (let i = 0; i < 10; i++) {
-      const r = await send({ type: 'is-worker', site: 'chatgpt' })
-      if (r && r.worker) { isWorker = true; break }
-      await sleep(1000) // 확장 로드 직후 작업용 탭 id 미정 대비 재시도
-    }
-    if (!isWorker) {
-      log('이 탭은 작업용 탭이 아님 — 자동화 비활성 (사용자 탭 보호)')
-      return
-    }
-    setInterval(tick, 3000)
-    log('TB MTOOL 자동화 대기 시작 (ChatGPT 작업용 탭)')
-  })()
+  setInterval(tick, 3000)
+  log('TB MTOOL 자동화 대기 시작 (ChatGPT)')
 })()
