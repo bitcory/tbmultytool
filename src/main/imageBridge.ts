@@ -38,14 +38,79 @@ export function setJobStatusListener(cb: (message: string) => void): void {
   jobStatusNotify = cb
 }
 
-// 소스별 마지막 폴링 시각 — 확장 탭이 그 사이트를 폴링 중이면 새 탭 안 엶.
-const lastPoll: Record<string, number> = {}
-// 작업이 들어왔는데 해당 사이트를 폴링하는 탭이 없으면 진짜 크롬에서 사이트를 연다.
+// 작업이 들어왔는데 해당 사이트를 폴링하는 탭이 부족하면 진짜 크롬에서 사이트를 연다.
 let siteOpener: (source: string) => void = () => {}
 export function setSiteOpener(fn: (source: string) => void): void {
   siteOpener = fn
 }
-const POLL_FRESH_MS = 8000
+
+// ── 워커(탭) 풀 관리 ─────────────────────────────────────────────────────
+// 각 확장 탭은 고유 workerId 로 heartbeat 폴링한다. 작업 중(쿨다운 포함)에도 heartbeat 는
+// 계속 보내므로(ready=0), 살아있는 탭 수를 정확히 알 수 있고 쿨다운 중 엉뚱한 탭이 열리지 않는다.
+const MAX_WORKERS = 3 // 소스별 동시 탭 상한 (봇 오인/레이트리밋 보호). 추후 설정값으로 노출 가능.
+const WORKER_TTL = 20000 // heartbeat 끊긴 지 이 시간 지나면 죽은 탭으로 간주
+const OPEN_GRACE = 35000 // 탭 열고 첫 heartbeat 도착까지 유예(ChatGPT SPA 로딩이 느려 넉넉히)
+const RATE_BACKOFF_MS = 90000 // 레이트리밋 감지 시 그 소스로 새 탭 여는 것을 잠시 멈춤
+const workers: Record<string, Map<string, number>> = {} // source -> (workerId -> lastSeen)
+const recentOpens: Record<string, number[]> = {} // source -> 최근 openExternal 시각들(아직 heartbeat 전)
+const sourceBackoff: Record<string, number> = {} // source -> 이 시각까지 새 탭 오픈 금지
+const lastPollAny: Record<string, number> = {} // source -> 마지막 폴링 시각(workerId 유무 무관, 폭주 방지용)
+
+function pruneWorkers(source: string): void {
+  const now = Date.now()
+  const m = workers[source]
+  if (m) for (const [id, t] of m) if (now - t > WORKER_TTL) m.delete(id)
+  const ro = recentOpens[source]
+  if (ro) while (ro.length && now - ro[0] > OPEN_GRACE) ro.shift()
+}
+function aliveWorkers(source: string): number {
+  pruneWorkers(source)
+  return (workers[source]?.size || 0) + (recentOpens[source]?.length || 0)
+}
+function noteWorker(source: string, workerId: string): void {
+  if (!workers[source]) workers[source] = new Map()
+  const isNew = !workers[source].has(workerId)
+  workers[source].set(workerId, Date.now())
+  // 새 탭의 첫 heartbeat 가 도착하면, 그 탭에 대응하는 provisional open 항목 하나를 제거.
+  if (isNew) {
+    const ro = recentOpens[source]
+    if (ro && ro.length) ro.shift()
+  }
+}
+function pendingJobs(source: string): number {
+  return jobQueue.filter((p) => p.job.source === source).length
+}
+/** 큐에 작업이 있고 살아있는 탭이 부족하면, 상한(MAX_WORKERS) 내에서 부족한 만큼 탭을 연다. */
+function ensureWorkers(source: string): void {
+  if (!source) return
+  if (Date.now() < (sourceBackoff[source] || 0)) return // 레이트리밋 백오프 중엔 새 탭 안 엶
+  if (pendingJobs(source) <= 0) return
+  pruneWorkers(source)
+  const registered = workers[source]?.size || 0 // worker 보고를 하는 새 확장(0.1.12+)만 카운트
+  if (registered > 0) {
+    // 정밀 멀티워커 경로: 등록 워커 + 최근 오픈(provisional) 합이 want 미만이면 보충.
+    const want = Math.min(MAX_WORKERS, pendingJobs(source))
+    let have = aliveWorkers(source)
+    while (have < want) {
+      siteOpener(source)
+      ;(recentOpens[source] ||= []).push(Date.now())
+      have++
+    }
+    return
+  }
+  // 등록된 워커가 없음 = 구 확장이거나 아직 첫 등록 전 → 폭주 방지 모드.
+  // 누군가 폴링 중이거나(최근 폴링) 최근에 연 탭이 살아있으면 더 안 연다. 정말 아무도 없을 때만 1개.
+  const recentlyPolled = Date.now() - (lastPollAny[source] || 0) < WORKER_TTL
+  const recentlyOpened = (recentOpens[source]?.length || 0) > 0
+  if (recentlyPolled || recentlyOpened) return
+  siteOpener(source)
+  ;(recentOpens[source] ||= []).push(Date.now())
+}
+// 모든 탭이 죽었는데 큐에 작업이 남은 경우(폴링이 끊겨 트리거가 없음)를 대비한 주기 점검.
+setInterval(() => {
+  const sources = new Set(jobQueue.map((p) => p.job.source))
+  for (const s of sources) ensureWorkers(s)
+}, 5000)
 
 /** 작업을 큐에 넣고, 확장이 완료/실패를 보고할 때 resolve 되는 Promise 를 반환. */
 export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<{ ok: boolean; message?: string }> {
@@ -61,11 +126,7 @@ export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<{ ok: boolean;
     }, JOB_TIMEOUT_MS)
     jobQueue.push({ job, resolve, timer, taken: false })
     jobStatusNotify(`크롬 확장에 ${job.source} 생성 작업 전달 — 크롬 탭에서 실행 대기 중…`)
-    // 해당 사이트를 폴링하는 탭이 없으면(최근 폴링 없음) 크롬에서 사이트를 연다.
-    if (Date.now() - (lastPoll[job.source] || 0) > POLL_FRESH_MS) {
-      siteOpener(job.source)
-      lastPoll[job.source] = Date.now() // 디바운스: 탭 로딩 동안 중복 오픈 방지
-    }
+    ensureWorkers(job.source) // 살아있는 탭이 부족하면 상한 내에서 탭을 연다
   })
 }
 
@@ -82,6 +143,15 @@ function finishJob(id: string, ok: boolean, message?: string): void {
   const [p] = jobQueue.splice(i, 1)
   clearTimeout(p.timer)
   p.resolve({ ok, message })
+}
+
+// 레이트리밋 등으로 확장이 작업을 포기 → 큐에 그대로 두고 다시 가져갈 수 있게(taken 해제).
+// 해당 소스는 잠시 새 탭 오픈을 멈춘다(계정 단위 레이트리밋이라 새 탭도 똑같이 막히므로).
+function requeueJob(id: string): void {
+  const p = jobQueue.find((q) => q.job.id === id)
+  if (!p) return
+  p.taken = false
+  sourceBackoff[p.job.source] = Date.now() + RATE_BACKOFF_MS
 }
 
 // 취소된 작업 id 집합 — 확장(실행 중인 content script)이 /job-canceled 로 확인해 즉시 중단.
@@ -327,11 +397,18 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
       await serveMedia(req, res, path.join(dir, path.basename(name))) // basename: 경로 탈출 방지
       return
     }
-    // 확장이 다음 작업을 가져감 — /poll?source=chatgpt
+    // 확장이 다음 작업을 가져감 — /poll?source=chatgpt&worker=w-xxx&ready=1
+    // ready=0 이면 작업 중(쿨다운/백오프)이라 heartbeat 만 보냄 → 작업은 안 줌.
     if (req.method === 'GET' && req.url && req.url.startsWith('/poll')) {
-      const q = new URL(req.url, 'http://127.0.0.1').searchParams.get('source') || ''
-      if (q) lastPoll[q] = Date.now() // 그 사이트 탭이 살아서 폴링 중임을 기록
-      json(res, 200, { ok: true, job: takeJob(q) })
+      const sp = new URL(req.url, 'http://127.0.0.1').searchParams
+      const q = sp.get('source') || ''
+      const workerId = sp.get('worker') || ''
+      const ready = sp.get('ready') !== '0'
+      if (q) lastPollAny[q] = Date.now() // workerId 유무 무관: 폭주 방지용 폴링 흔적
+      if (q && workerId) noteWorker(q, workerId) // 살아있음 기록(작업 중이어도)
+      const job = q && ready ? takeJob(q) : null
+      ensureWorkers(q) // 아직 작업 남고 탭 부족하면 상한 내에서 추가 오픈
+      json(res, 200, { ok: true, job })
       return
     }
     // 실행 중인 작업이 취소됐는지 확인 — /job-canceled?id=xxx (확장이 폴링해 즉시 중단)
@@ -346,6 +423,7 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
         const { id, status, message } = JSON.parse(await readBody(req))
         if (message) jobStatusNotify(String(message))
         if (status === 'done') finishJob(String(id), true)
+        else if (status === 'retry') requeueJob(String(id)) // 레이트리밋 등 → 큐에 되돌림
         else if (status === 'error') finishJob(String(id), false, message ? String(message) : '확장에서 생성 실패')
         json(res, 200, { ok: true })
       } catch (err) {

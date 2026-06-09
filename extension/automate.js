@@ -144,19 +144,25 @@
     return false
   }
   function clearInput(el) { try { const sel = window.getSelection(); sel.removeAllRanges(); const r = document.createRange(); r.selectNodeContents(el); sel.addRange(r); document.execCommand('delete', false) } catch (e) {} }
-  async function typePrompt(text) {
+  async function typePrompt(text, hasRefs) {
     const el = getPromptInput(); if (!el) return false
+    // 참조 이미지가 있으면 업로드 처리 동안 전송버튼이 한동안 비활성 → 대기를 넉넉히.
+    const budget = hasRefs ? 25000 : 8000
     el.focus(); await sleep(50)
     clearInput(el); await sleep(50)
     document.execCommand('insertText', false, text)
     fireInput(el, text)
     await sleep(200)
-    if (hasContent(el, text) && (await ensureSendAppears(el, text, 5000))) return true
-    clearInput(el)
-    const dt = new DataTransfer(); dt.setData('text/plain', text)
-    el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
-    await sleep(200); fireInput(el, text)
-    return await ensureSendAppears(el, text, 5000)
+    // 1) 텍스트가 안 들어갔으면 붙여넣기로 폴백
+    if (!hasContent(el, text)) {
+      clearInput(el)
+      const dt = new DataTransfer(); dt.setData('text/plain', text)
+      el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }))
+      await sleep(200); fireInput(el, text)
+    }
+    if (!hasContent(el, text)) return false
+    // 2) 텍스트는 들어갔음 → 전송버튼이 활성화될 때까지(참조 업로드 처리 포함) 대기
+    return await ensureSendAppears(el, text, budget)
   }
 
   function lastTurnImageUrls() {
@@ -209,7 +215,7 @@
     if (REFS.length) { report('참조 이미지 업로드…'); await uploadImages(REFS); await sleep(1500) }
 
     report('프롬프트 입력 중…')
-    if (!(await typePrompt(PROMPT))) throw new Error('프롬프트 입력 실패')
+    if (!(await typePrompt(PROMPT, REFS.length > 0))) throw new Error('프롬프트 입력 실패(전송버튼 미활성 — 참조 업로드 지연일 수 있음)')
 
     let send = getSendButton(), t = 0
     while ((!send || send.disabled) && t++ < 30) { await sleep(150); send = getSendButton() }
@@ -222,14 +228,17 @@
     for (let i = 0; i < 160; i++) {
       await sleep(1500)
       if (i % 4 === 0) await throwIfCanceled(job.id) // 정지 버튼 확인(약 6초마다)
+      if (isRateLimited()) { const e = new Error('레이트 리밋'); e.rateLimit = true; throw e }
       if (i > 0 && i % 8 === 0) report('이미지 생성 대기 중… (' + Math.round(i * 1.5) + '초)')
       const urls = lastTurnImageUrls()
-      if (urls.length && !isStreaming()) {
-        const u = urls[urls.length - 1]
+      const u = urls.length ? urls[urls.length - 1] : null
+      if (u) {
         if (u === stableUrl) stableCount++
         else { stableUrl = u; stableCount = 0 }
-        if (stableCount >= 1) break
-      } else {
+        // 스트리밍 끝났으면 1회 안정으로 즉시 채택. 새 ChatGPT는 이미지 완료 후에도
+        // task 처리로 stop 버튼이 잠시 남을 수 있어, 스트리밍 중이면 URL 이 ~6초(4회) 안정될 때 채택.
+        if (isStreaming() ? stableCount >= 4 : stableCount >= 1) break
+      } else if (!isStreaming()) {
         stableCount = 0
       }
     }
@@ -241,9 +250,21 @@
     return await blobToDataUrl(await res.blob())
   }
 
+  // 레이트리밋(계정 사용량 한도) 감지 — 마지막 turn 텍스트에서 한도 안내 문구를 찾는다.
+  const RATE_PAT = ['한도', '제한에 도달', '한도에 도달', '사용량', '잠시 후 다시', '나중에 다시', 'rate limit', 'too many', 'limit reached', 'try again later', 'usage limit', "you've hit"]
+  function isRateLimited() {
+    const turns = qsa(SEL.turn); const last = turns[turns.length - 1]
+    const t = (last ? (last.innerText || last.textContent || '') : '').toLowerCase()
+    if (!t) return false
+    return RATE_PAT.some((p) => t.includes(p.toLowerCase()))
+  }
+
   // ── 폴링 루프 ───────────────────────────────────────────────────────────
   const send = (msg) => new Promise((resolve) => { try { chrome.runtime.sendMessage(msg, (r) => resolve(r)) } catch (e) { resolve(null) } })
+  // 이 탭의 고유 워커 ID — 앱이 살아있는 탭 수를 정확히 세어 동시 탭 수를 상한(3)으로 통제.
+  const WORKER_ID = 'w-' + Math.random().toString(36).slice(2, 10)
   let busy = false
+  let backoffUntil = 0 // 레이트리밋 시 이 시각까지 새 작업 안 받음(heartbeat 는 계속)
 
   // 앱의 정지 버튼이 눌렸는지 확인 (실행 중 중간중간 호출). 취소면 throw 로 즉시 중단.
   async function throwIfCanceled(jobId) {
@@ -252,8 +273,11 @@
   }
 
   async function tick() {
-    if (busy) return
-    const r = await send({ type: 'poll', source: 'chatgpt' })
+    // heartbeat 는 작업 중(쿨다운/백오프 포함)에도 항상 보낸다 → 앱이 이 탭이 살아있음을 알고
+    // 동시 탭 수를 정확히 통제(쿨다운 중 엉뚱한 새 탭이 열리지 않음).
+    const ready = !busy && Date.now() >= backoffUntil
+    const r = await send({ type: 'poll', source: 'chatgpt', worker: WORKER_ID, ready: ready ? 1 : 0 })
+    if (!ready) return
     const job = r && r.job
     if (!job) return
     busy = true
@@ -264,9 +288,16 @@
       await send({ type: 'job-status', id: job.id, status: 'done', message: '완료' })
       log('완료')
     } catch (e) {
-      const m = (e && e.message) || String(e)
-      await send({ type: 'job-status', id: job.id, status: 'error', message: m })
-      log('오류: ' + m)
+      if (e && e.rateLimit) {
+        // 계정 레이트리밋 — 작업은 큐로 되돌리고(retry) 이 탭은 잠시 쉰다.
+        backoffUntil = Date.now() + 90000
+        await send({ type: 'job-status', id: job.id, status: 'retry', message: '레이트 리밋 — 90초 후 재시도' })
+        log('레이트 리밋 감지 — 이 탭 90초 대기, 작업은 재시도 큐로')
+      } else {
+        const m = (e && e.message) || String(e)
+        await send({ type: 'job-status', id: job.id, status: 'error', message: m })
+        log('오류: ' + m)
+      }
     } finally {
       // 봇 감지 회피: 다음 생성까지 사람처럼 랜덤 간격(12~25초). 고정 간격은 그 자체가 봇 신호.
       const cooldown = 12000 + Math.floor(Math.random() * 13000)
@@ -277,6 +308,33 @@
     }
   }
 
+  // 진단: ChatGPT 페이지에서 Alt+Shift+D 누르면 이미지 alt·src 를 콘솔에 출력.
+  // (content script 는 페이지와 격리된 world 라 콘솔 함수 호출은 안 보임 → 키 입력으로 트리거)
+  function runDiag() {
+    const turns = qsa(SEL.turn)
+    const last = turns[turns.length - 1]
+    const imgs = last ? qsa('img', last) : []
+    console.log('%c[AVS-DIAG] === 마지막 turn 이미지 개수:', 'color:#4ea1ff', imgs.length)
+    imgs.forEach((im, i) => console.log('[AVS-DIAG] turn', i, { alt: im.alt, srcHead: (im.src || '').slice(0, 80), w: im.naturalWidth, h: im.naturalHeight }))
+    const all = qsa('img').filter((im) => { const s = im.src || ''; return s.indexOf('oaiusercontent') >= 0 || s.indexOf('sdmntpr') >= 0 || s.indexOf('files') >= 0 })
+    console.log('%c[AVS-DIAG] === oaiusercontent류 img:', 'color:#4ea1ff', all.length)
+    all.forEach((im, i) => console.log('[AVS-DIAG] cand', i, { alt: im.alt, srcHead: (im.src || '').slice(0, 100) }))
+    const detected = lastTurnImageUrls()
+    console.log('%c[AVS-DIAG] === 현재 감지로직 결과 lastTurnImageUrls():', 'color:#4ea1ff', detected)
+    // 감지된 URL 을 실제로 fetch 해본다 (자동화가 이미지를 가져오는 그 단계)
+    if (detected[0]) {
+      fetch(detected[0], { credentials: 'include' })
+        .then(async (r) => {
+          const blob = r.ok ? await r.blob() : null
+          console.log('%c[AVS-DIAG] === fetch 테스트:', 'color:#4ea1ff', { status: r.status, ok: r.ok, type: blob && blob.type, sizeKB: blob && Math.round(blob.size / 1024) })
+        })
+        .catch((e) => console.log('%c[AVS-DIAG] === fetch 실패:', 'color:#ff6b6b', String(e && e.message || e)))
+    }
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.altKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) { e.preventDefault(); runDiag() }
+  })
+
   setInterval(tick, 3000)
-  log('TB MTOOL 자동화 대기 시작 (ChatGPT)')
+  log('TB MTOOL 자동화 대기 시작 (ChatGPT) — 진단: Alt+Shift+D 또는 로드 2.5초 후 자동')
 })()

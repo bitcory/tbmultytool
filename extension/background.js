@@ -125,7 +125,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const base = await findApp()
         if (!base) return sendResponse({ ok: false, job: null })
-        const r = await fetch(base + '/poll?source=' + encodeURIComponent(msg.source || ''))
+        const params = new URLSearchParams({
+          source: msg.source || '',
+          worker: msg.worker || '',
+          ready: String(msg.ready != null ? msg.ready : 1)
+        })
+        const r = await fetch(base + '/poll?' + params.toString())
         const j = await r.json().catch(() => ({ ok: false }))
         sendResponse({ ok: !!j.ok, job: j.job || null })
       } catch (e) {

@@ -159,6 +159,7 @@
 
   // ── 폴링 루프 ───────────────────────────────────────────────────────────
   const send = (msg) => new Promise((resolve) => { try { chrome.runtime.sendMessage(msg, (r) => resolve(r)) } catch (e) { resolve(null) } })
+  const WORKER_ID = 'w-' + Math.random().toString(36).slice(2, 10) // 동시 탭 수 통제용 고유 ID
   let busy = false
   async function throwIfCanceled(jobId) {
     const r = await send({ type: 'check-cancel', id: jobId })
@@ -166,8 +167,9 @@
   }
 
   async function tick() {
+    // 작업 중에도 heartbeat 는 계속 보내(ready=0) 앱이 동시 탭 수를 정확히 통제하게 한다.
+    const r = await send({ type: 'poll', source: 'suno', worker: WORKER_ID, ready: busy ? 0 : 1 })
     if (busy) return
-    const r = await send({ type: 'poll', source: 'suno' })
     const job = r && r.job
     if (!job) return
     busy = true
