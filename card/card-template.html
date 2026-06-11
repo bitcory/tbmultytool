@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000}
+  .card{width:1080px;height:1080px;position:relative;overflow:hidden;
+    font-family:'Pretendard',sans-serif;background:var(--c-bg);color:var(--c-ink);
+    padding:96px;display:flex;flex-direction:column}
+  .card .topbar{position:absolute;top:0;left:0;width:240px;height:18px;background:var(--c-acc)}
+  .card .kicker{font-size:30px;font-weight:800;letter-spacing:.04em;color:var(--c-acc);
+    margin-bottom:30px;text-transform:uppercase}
+  .card.cover .kicker{display:inline-block;align-self:flex-start;background:var(--c-ink);
+    color:var(--c-bg);padding:16px 30px;border-radius:999px;margin-bottom:48px}
+  .card .num{font-size:200px;font-weight:900;line-height:.85;color:var(--c-acc);
+    letter-spacing:-.04em;margin-bottom:8px}
+  .card .headline{font-size:82px;font-weight:900;line-height:1.1;letter-spacing:-.03em;white-space:pre-wrap}
+  .card.cover .headline{font-size:104px;color:var(--c-ink)}
+  .card .body{font-size:40px;font-weight:500;line-height:1.55;color:var(--c-sub);margin-top:28px;white-space:pre-wrap}
+  .card .spacer{flex:1}
+  .card .footer{display:flex;justify-content:space-between;align-items:center;font-size:30px;font-weight:800}
+  .card .handle{color:var(--c-acc)}
+  .card.cover .handle{color:var(--c-ink)}
+  .card .dots{display:flex;gap:10px}
+  .card .dot{width:14px;height:14px;border-radius:50%;background:var(--c-dot)}
+  .card .dot.on{background:var(--c-acc)}
+  .card.cover .dot.on{background:var(--c-ink)}
+  .card .rule{width:120px;height:10px;background:var(--c-acc);margin:34px 0 0}
+  .card.cover .rule{background:var(--c-ink)}
+</style>
+</head>
+<body>
+<div class="card" id="card"></div>
+<script>
+const DARK={bg:'#0b0c10',ink:'#ffffff',sub:'#9aa0b0',dot:'rgba(255,255,255,.18)'};
+function esc(t){return(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function tipIndex(slides,i){let n=0;for(let k=0;k<=i;k++){if(slides[k].type==='tip')n++;}return n;}
+
+function coverInk(hex){
+  const n=parseInt(hex.slice(1),16),r=n>>16&255,g=n>>8&255,b=n&255;
+  const lum=(0.2126*r+0.7152*g+0.0722*b)/255;
+  return lum>0.6 ? '#0b0c10' : '#ffffff';
+}
+
+// Called by Playwright: window.renderCard(i, {accent, handle, slides})
+window.renderCard = function(i, data){
+  const {accent, handle, slides} = data;
+  const s = slides[i];
+  const node = document.getElementById('card');
+  node.className = 'card ' + s.type;
+  node.style.setProperty('--c-acc', accent);
+  if(s.type==='cover'){
+    const ink = coverInk(accent);
+    node.style.setProperty('--c-bg', accent);
+    node.style.setProperty('--c-ink', ink);
+    node.style.setProperty('--c-sub', ink==='#ffffff'?'rgba(255,255,255,.85)':'rgba(0,0,0,.7)');
+    node.style.setProperty('--c-dot', ink==='#ffffff'?'rgba(255,255,255,.35)':'rgba(0,0,0,.25)');
+  } else {
+    node.style.setProperty('--c-bg', DARK.bg);
+    node.style.setProperty('--c-ink', DARK.ink);
+    node.style.setProperty('--c-sub', DARK.sub);
+    node.style.setProperty('--c-dot', DARK.dot);
+  }
+  const dots = slides.map((_,k)=>`<span class="dot ${k===i?'on':''}"></span>`).join('');
+  let mid='';
+  if(s.type==='tip'){
+    mid=`<div class="num">${String(tipIndex(slides,i)).padStart(2,'0')}</div>
+         <div class="headline">${esc(s.headline)}</div>
+         ${s.body?`<div class="body">${esc(s.body)}</div>`:''}`;
+  } else if(s.type==='cover'){
+    mid=`<div class="headline">${esc(s.headline)}</div><div class="rule"></div>
+         ${s.body?`<div class="body">${esc(s.body)}</div>`:''}`;
+  } else {
+    mid=`<div class="headline">${esc(s.headline)}</div>
+         ${s.body?`<div class="body">${esc(s.body)}</div>`:''}`;
+  }
+  node.innerHTML=`<div class="topbar"></div><div class="kicker">${esc(s.kicker||'')}</div>${mid}
+    <div class="spacer"></div><div class="footer"><span class="handle">${esc(handle)}</span>
+    <span class="dots">${dots}</span></div>`;
+};
+</script>
+</body>
+</html>

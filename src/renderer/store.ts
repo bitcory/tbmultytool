@@ -14,7 +14,7 @@ const defaultOptions: ProjectOptions = {
   imageStyle: 'cinematic, high detail, soft lighting'
 }
 
-export type View = 'imagegen' | 'videogen' | 'musicgen' | 'wizard' | 'gallery' | 'gallerygrid' | 'settings'
+export type View = 'home' | 'imagegen' | 'videogen' | 'musicgen' | 'cardnews' | 'wizard' | 'gallery' | 'gallerygrid' | 'settings'
 export type Step = 0 | 1 | 2 | 3 // 준비 / 대본 / 자산 / 렌더
 
 interface AppState {
@@ -47,7 +47,7 @@ interface AppState {
 }
 
 export const useStore = create<AppState>((set) => ({
-  view: 'wizard',
+  view: 'home',
   step: 0,
   options: defaultOptions,
   scenes: [],

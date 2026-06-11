@@ -7,6 +7,7 @@ import path from 'path'
 import crypto from 'crypto'
 import { app, net } from 'electron'
 import type { BridgeInfo, BridgeJob, ImageSource, ImportedImage } from '@shared/types'
+import { getDeployedExtVersion } from './extensionDeploy'
 
 const PREFERRED_PORT = 47321
 const MAX_BODY = 40 * 1024 * 1024 // 40MB
@@ -379,7 +380,7 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
       return
     }
     if (req.method === 'GET' && req.url === '/ping') {
-      json(res, 200, { ok: true, app: 'ai-video-studio', port })
+      json(res, 200, { ok: true, app: 'ai-video-studio', port, extVersion: getDeployedExtVersion() })
       return
     }
     if (req.method === 'POST' && req.url === '/debug') {

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>카드뉴스 생성기 · AI 툴 팁</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0c10; --panel:#15171f; --panel2:#1d2029; --line:#2a2e3a;
+    --ink:#f4f5f7; --muted:#8c93a6; --accent:#3d5afe;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Pretendard',system-ui,sans-serif;
+    background:var(--bg);color:var(--ink);
+    display:flex;min-height:100vh;
+  }
+  /* ---------- Controls ---------- */
+  .panel{
+    width:380px;flex-shrink:0;background:var(--panel);
+    border-right:1px solid var(--line);
+    height:100vh;overflow-y:auto;padding:24px;
+  }
+  .panel h1{font-size:18px;font-weight:800;letter-spacing:-.02em}
+  .panel .sub{font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.5}
+  .group{margin-top:24px}
+  .group>label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;
+    letter-spacing:.08em;color:var(--muted);margin-bottom:9px}
+  input,textarea,select{
+    width:100%;background:var(--panel2);border:1px solid var(--line);
+    border-radius:9px;color:var(--ink);padding:10px 12px;
+    font-family:inherit;font-size:13.5px;resize:vertical;
+  }
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+  textarea{min-height:70px;line-height:1.5}
+  .field{margin-bottom:12px}
+  .field span{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
+  .swatches{display:flex;gap:8px;flex-wrap:wrap}
+  .sw{width:34px;height:34px;border-radius:8px;cursor:pointer;border:2px solid transparent}
+  .sw.active{border-color:#fff}
+  .slidebar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .chip{padding:7px 11px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);
+    font-size:12px;font-weight:700;cursor:pointer;color:var(--muted)}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn{display:block;width:100%;text-align:center;padding:11px;border-radius:9px;
+    border:none;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;margin-top:8px}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  .btn-row{display:flex;gap:8px}
+  .btn-row .btn{margin-top:0}
+  .mini{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+  /* ---------- Stage ---------- */
+  .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:32px;gap:18px;height:100vh;overflow:auto}
+  .frame{width:min(78vh,560px);aspect-ratio:1/1;overflow:hidden;border-radius:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .scaler{transform-origin:top left}
+  .nav{display:flex;align-items:center;gap:14px}
+  .nav button{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);font-size:18px;cursor:pointer}
+  .nav .pos{font-size:13px;color:var(--muted);font-weight:700;min-width:54px;text-align:center}
+
+  /* ---------- CARD (1080x1080) ---------- */
+  .card{width:1080px;height:1080px;position:relative;overflow:hidden;
+    font-family:'Pretendard',sans-serif;background:var(--c-bg);color:var(--c-ink);
+    padding:96px;display:flex;flex-direction:column}
+  .card .topbar{position:absolute;top:0;left:0;width:240px;height:18px;background:var(--c-acc)}
+  .card .kicker{font-size:30px;font-weight:800;letter-spacing:.04em;color:var(--c-acc);
+    margin-bottom:30px;text-transform:uppercase}
+  .card.cover .kicker{display:inline-block;align-self:flex-start;background:var(--c-ink);
+    color:var(--c-bg);padding:16px 30px;border-radius:999px;margin-bottom:48px}
+  .card .num{font-size:200px;font-weight:900;line-height:.85;color:var(--c-acc);
+    letter-spacing:-.04em;margin-bottom:8px}
+  .card .headline{font-size:82px;font-weight:900;line-height:1.1;letter-spacing:-.03em;
+    white-space:pre-wrap}
+  .card.cover .headline{font-size:104px;color:var(--c-ink)}
+  .card .body{font-size:40px;font-weight:500;line-height:1.55;color:var(--c-sub);
+    margin-top:28px;white-space:pre-wrap}
+  .card .spacer{flex:1}
+  .card .footer{display:flex;justify-content:space-between;align-items:center;
+    font-size:30px;font-weight:800}
+  .card .handle{color:var(--c-acc)}
+  .card .dots{display:flex;gap:10px}
+  .card .dot{width:14px;height:14px;border-radius:50%;background:var(--c-dot)}
+  .card .dot.on{background:var(--c-acc)}
+  .card.cover .handle{color:var(--c-ink)}
+  .card.cover .dot.on{background:var(--c-ink)}
+  .card .rule{width:120px;height:10px;background:var(--c-acc);margin:34px 0 0}
+  .card.cover .rule{background:var(--c-ink)}
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>카드뉴스 생성기</h1>
+  <p class="sub">AI 툴 팁 · 강렬 스타일 · 1080×1080<br>텍스트만 바꾸고 PNG로 받으세요.</p>
+
+  <div class="group">
+    <label>액센트 컬러</label>
+    <div class="swatches" id="swatches"></div>
+  </div>
+
+  <div class="group">
+    <label>슬라이드</label>
+    <div class="slidebar" id="slidebar"></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="addSlide()">+ 팁 추가</button>
+      <button class="btn btn-ghost" onclick="delSlide()">선택 삭제</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>내용 편집</label>
+    <div id="editor"></div>
+  </div>
+
+  <div class="group">
+    <label>브랜드 핸들</label>
+    <input id="handle" value="@aitoolbee" oninput="setHandle(this.value)">
+  </div>
+
+  <div class="group">
+    <button class="btn btn-primary" onclick="downloadOne()">이 카드 PNG 받기</button>
+    <button class="btn btn-ghost" onclick="downloadAll()">전체 다운로드</button>
+    <p class="mini">받은 이미지를 Meta 비즈니스 스위트에 캐러셀로 올려 예약하면 끝.</p>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="frame"><div class="scaler" id="scaler"><div class="card" id="card"></div></div></div>
+  <div class="nav">
+    <button onclick="prev()">‹</button>
+    <span class="pos" id="pos">1 / 1</span>
+    <button onclick="next()">›</button>
+  </div>
+</div>
+
+<script>
+const THEMES = [
+  {name:'전기 블루', acc:'#3d5afe'},
+  {name:'시그널 옐로우', acc:'#ffe600'},
+  {name:'비비드 코랄', acc:'#ff3b30'},
+  {name:'네온 라임', acc:'#c6ff00'},
+  {name:'핫 핑크', acc:'#ff2d95'},
+];
+const DARK={bg:'#0b0c10', ink:'#ffffff', sub:'#9aa0b0', dot:'rgba(255,255,255,.18)'};
+
+let accent = THEMES[0].acc;
+let cur = 0;
+let handle = '@aitoolbee';
+
+// type: cover | tip | outro
+let slides = [
+  {type:'cover', kicker:'AI 툴 꿀팁', headline:'몰라서 손해 본\n프롬프트 한 줄', body:''},
+  {type:'tip', kicker:'TIP', headline:'역할부터 박아라', body:'“너는 10년차 카피라이터다”\n한 줄이 결과 품질을 바꾼다.'},
+  {type:'tip', kicker:'TIP', headline:'예시를 같이 줘라', body:'원하는 톤의 샘플 1~2개를 붙이면\n적중률이 눈에 띄게 올라간다.'},
+  {type:'tip', kicker:'TIP', headline:'형식을 지정해라', body:'표·번호·JSON 등 출력 형식을\n먼저 정하면 다듬는 시간이 준다.'},
+  {type:'outro', kicker:'SAVE & FOLLOW', headline:'내일도 한 개\nAI 툴 팁', body:'팔로우하면 매일 올라옵니다.'},
+];
+
+const $ = s => document.querySelector(s);
+
+function tipIndex(i){ // 1-based number among tip slides
+  let n=0; for(let k=0;k<=i;k++){ if(slides[k].type==='tip') n++; } return n;
+}
+
+function coverInk(hex){
+  const n=parseInt(hex.slice(1),16),r=n>>16&255,g=n>>8&255,b=n&255;
+  const lum=(0.2126*r+0.7152*g+0.0722*b)/255;
+  return lum>0.6 ? '#0b0c10' : '#ffffff';
+}
+
+function renderCard(i, node){
+  const s = slides[i];
+  node.className = 'card ' + s.type;
+  node.style.setProperty('--c-acc', accent);
+  if(s.type==='cover'){
+    const ink = coverInk(accent);
+    node.style.setProperty('--c-bg', accent);
+    node.style.setProperty('--c-ink', ink);
+    node.style.setProperty('--c-sub', ink==='#ffffff'?'rgba(255,255,255,.85)':'rgba(0,0,0,.7)');
+    node.style.setProperty('--c-dot', ink==='#ffffff'?'rgba(255,255,255,.35)':'rgba(0,0,0,.25)');
+  } else {
+    node.style.setProperty('--c-bg', DARK.bg);
+    node.style.setProperty('--c-ink', DARK.ink);
+    node.style.setProperty('--c-sub', DARK.sub);
+    node.style.setProperty('--c-dot', DARK.dot);
+  }
+
+  const dots = slides.map((_,k)=>`<span class="dot ${k===i?'on':''}"></span>`).join('');
+  let mid = '';
+  if(s.type==='tip'){
+    mid = `<div class="num">${String(tipIndex(i)).padStart(2,'0')}</div>
+           <div class="headline">${esc(s.headline)}</div>
+           ${s.body?`<div class="body">${esc(s.body)}</div>`:''}`;
+  } else if(s.type==='cover'){
+    mid = `<div class="headline">${esc(s.headline)}</div>
+           <div class="rule"></div>
+           ${s.body?`<div class="body">${esc(s.body)}</div>`:''}`;
+  } else { // outro
+    mid = `<div class="headline">${esc(s.headline)}</div>
+           ${s.body?`<div class="body">${esc(s.body)}</div>`:''}`;
+  }
+
+  node.innerHTML = `
+    <div class="topbar"></div>
+    <div class="kicker">${esc(s.kicker||'')}</div>
+    ${mid}
+    <div class="spacer"></div>
+    <div class="footer">
+      <span class="handle">${esc(handle)}</span>
+      <span class="dots">${dots}</span>
+    </div>`;
+}
+function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function fitScaler(){
+  const frame = $('.frame').clientWidth;
+  $('#scaler').style.transform = `scale(${frame/1080})`;
+}
+
+function draw(){
+  renderCard(cur, $('#card'));
+  fitScaler();
+  $('#pos').textContent = `${cur+1} / ${slides.length}`;
+  buildSlidebar(); buildEditor();
+}
+
+function buildSwatches(){
+  $('#swatches').innerHTML = THEMES.map(t=>
+    `<div class="sw ${t.acc===accent?'active':''}" style="background:${t.acc}"
+      onclick="setAccent('${t.acc}')" title="${t.name}"></div>`).join('');
+}
+function setAccent(a){accent=a;buildSwatches();draw();}
+
+function buildSlidebar(){
+  $('#slidebar').innerHTML = slides.map((s,i)=>{
+    const label = s.type==='cover'?'표지':s.type==='outro'?'마무리':`#${tipIndex(i)}`;
+    return `<div class="chip ${i===cur?'active':''}" onclick="go(${i})">${label}</div>`;
+  }).join('');
+}
+function buildEditor(){
+  const s = slides[cur];
+  $('#editor').innerHTML = `
+    <div class="field"><span>상단 라벨</span><input value="${attr(s.kicker)}" oninput="upd('kicker',this.value)"></div>
+    <div class="field"><span>제목 (큰 글씨)</span><textarea oninput="upd('headline',this.value)">${esc(s.headline)}</textarea></div>
+    <div class="field"><span>본문</span><textarea oninput="upd('body',this.value)">${esc(s.body)}</textarea></div>`;
+}
+function attr(t){return (t||'').replace(/"/g,'&quot;');}
+function upd(k,v){slides[cur][k]=v;draw();}
+function setHandle(v){handle=v;draw();}
+function go(i){cur=i;draw();}
+function prev(){cur=(cur-1+slides.length)%slides.length;draw();}
+function next(){cur=(cur+1)%slides.length;draw();}
+function addSlide(){
+  const insertAt = cur+1;
+  slides.splice(insertAt,0,{type:'tip',kicker:'TIP',headline:'새 팁 제목',body:'설명을 입력하세요.'});
+  cur=insertAt;draw();
+}
+function delSlide(){
+  if(slides.length<=1)return;
+  slides.splice(cur,1); cur=Math.min(cur,slides.length-1); draw();
+}
+
+async function snap(i){
+  await document.fonts.ready;
+  const holder=document.createElement('div');
+  holder.style.cssText='position:fixed;left:-99999px;top:0;';
+  const c=document.createElement('div');
+  holder.appendChild(c);document.body.appendChild(holder);
+  renderCard(i,c);
+  await new Promise(r=>setTimeout(r,60));
+  const canvas=await html2canvas(c,{scale:1,width:1080,height:1080,
+    windowWidth:1080,windowHeight:1080,backgroundColor:null,useCORS:true});
+  document.body.removeChild(holder);
+  return canvas.toDataURL('image/png');
+}
+function trigger(data,name){
+  const a=document.createElement('a');a.href=data;a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+}
+async function downloadOne(){
+  trigger(await snap(cur), `card_${String(cur+1).padStart(2,'0')}.png`);
+}
+async function downloadAll(){
+  for(let i=0;i<slides.length;i++){
+    trigger(await snap(i), `card_${String(i+1).padStart(2,'0')}.png`);
+    await new Promise(r=>setTimeout(r,350));
+  }
+}
+
+window.addEventListener('resize',fitScaler);
+buildSwatches();draw();
+document.fonts.ready.then(draw);
+</script>
+</body>
+</html>

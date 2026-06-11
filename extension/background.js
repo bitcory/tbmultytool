@@ -26,6 +26,64 @@ async function findApp() {
   return null
 }
 
+// ── 확장 자동 reload ──────────────────────────────────────────────────────
+// 앱이 배포한 확장 버전(/ping 의 extVersion)이 현재 실행 버전보다 높으면 스스로 reload.
+// 압축해제 확장은 디스크 변경을 못 느끼므로, 앱이 알려주는 버전을 기준으로 갱신한다.
+const SITE_GLOBS = [
+  'https://chatgpt.com/*',
+  'https://chat.openai.com/*',
+  'https://grok.com/*',
+  'https://suno.com/*',
+  'https://labs.google/*'
+]
+function isNewerVersion(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0
+    const y = pb[i] || 0
+    if (x !== y) return x > y
+  }
+  return false
+}
+async function checkExtUpdate() {
+  try {
+    const base = await findApp()
+    if (!base) return
+    const r = await fetch(base + '/ping')
+    const j = await r.json().catch(() => null)
+    const latest = j && j.extVersion
+    const current = chrome.runtime.getManifest().version
+    if (!latest || !isNewerVersion(latest, current)) return
+    // 열려있는 우리 사이트 탭들을 reload 예약 → 재시작 후 새 content script 주입.
+    let ids = []
+    try {
+      const tabs = await chrome.tabs.query({ url: SITE_GLOBS })
+      ids = tabs.map((t) => t.id).filter((id) => id != null)
+    } catch (e) {}
+    await chrome.storage.local.set({ __reloadTabs: ids })
+    console.log('[AVS] 확장 업데이트 감지 ' + current + ' → ' + latest + ' · 자동 reload')
+    chrome.runtime.reload()
+  } catch (e) {}
+}
+// 재시작 직후: 직전에 예약된 탭들을 새로고침(orphan content script 교체).
+chrome.storage.local
+  .get('__reloadTabs')
+  .then(({ __reloadTabs }) => {
+    if (Array.isArray(__reloadTabs) && __reloadTabs.length) {
+      chrome.storage.local.remove('__reloadTabs')
+      for (const id of __reloadTabs) {
+        try { chrome.tabs.reload(id) } catch (e) {}
+      }
+    }
+  })
+  .catch(() => {})
+try {
+  chrome.alarms.create('ext-update-check', { periodInMinutes: 1 })
+  chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'ext-update-check') checkExtUpdate() })
+} catch (e) {}
+checkExtUpdate() // 시작 시 즉시 1회
+
 function bytesToBase64(bytes) {
   let binary = ''
   const chunk = 0x8000
@@ -36,7 +94,9 @@ function bytesToBase64(bytes) {
 }
 
 async function urlToDataUrl(url) {
-  const r = await fetch(url)
+  // background(서비스워커) fetch 는 host_permissions origin 에 대해 CORS 우회 + 쿠키 전송 가능.
+  // Flow 이미지(labs.google→flow-content.google 리다이렉트, 인증 필요)도 이 경로로 받는다.
+  const r = await fetch(url, { credentials: 'include' })
   if (!r.ok) throw new Error('이미지 다운로드 실패: ' + r.status)
   const blob = await r.blob()
   const buf = await blob.arrayBuffer()

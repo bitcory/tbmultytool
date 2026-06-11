@@ -1,0 +1,11 @@
+{
+  "accent": "#3d5afe",
+  "handle": "@toolb",
+  "slides": [
+    { "type": "cover", "kicker": "AI 툴 꿀팁", "headline": "몰라서 손해 본\n프롬프트 한 줄", "body": "" },
+    { "type": "tip", "kicker": "TIP", "headline": "역할부터 박아라", "body": "“너는 10년차 카피라이터다”\n한 줄이 결과 품질을 바꾼다." },
+    { "type": "tip", "kicker": "TIP", "headline": "예시를 같이 줘라", "body": "원하는 톤의 샘플 1~2개를 붙이면\n적중률이 눈에 띄게 올라간다." },
+    { "type": "tip", "kicker": "TIP", "headline": "형식을 지정해라", "body": "표·번호·JSON 등 출력 형식을\n먼저 정하면 다듬는 시간이 준다." },
+    { "type": "outro", "kicker": "SAVE & FOLLOW", "headline": "내일도 한 개\nAI 툴 팁", "body": "팔로우하면 매일 올라옵니다." }
+  ]
+}

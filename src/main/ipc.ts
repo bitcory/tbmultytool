@@ -33,74 +33,7 @@ import {
 } from './imageBridge'
 import { grabberScript } from './injectGrabber'
 import { deployExtension } from './extensionDeploy'
-import { chatgptGenerateScript } from './automateChatgpt'
 import { grokVideoScript } from './automateGrok'
-import {
-  flowSetupScript,
-  flowPlusCoordsScript,
-  flowFindRefScript,
-  flowTypePromptScript,
-  flowCaptureScript
-} from './automateFlow'
-
-// CDP 진짜 클릭 (Flow가 합성 클릭을 isTrusted로 차단하므로 필수). 숨김 창에서도 동작.
-async function cdpClick(win: BrowserWindow, x: number, y: number): Promise<void> {
-  const dbg = win.webContents.debugger
-  try {
-    if (!dbg.isAttached()) dbg.attach('1.3')
-  } catch {
-    /* already attached */
-  }
-  await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
-  await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
-  await dbg.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
-}
-const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
-
-// Flow 이미지 생성 전체 오케스트레이션 (CDP 기반)
-async function runFlowGenerate(
-  win: BrowserWindow,
-  prompt: string,
-  aspect: string,
-  refs: string[]
-): Promise<{ ok: boolean; message?: string }> {
-  const ex = (js: string): Promise<{ ok?: boolean; error?: string; x?: number; y?: number }> =>
-    win.webContents.executeJavaScript(js)
-  const prefix = 'avsref' + Math.floor(Math.random() * 1e6)
-
-  const setup = await ex(flowSetupScript(aspect, refs, prefix))
-  if (!setup?.ok) return { ok: false, message: 'Flow 준비 실패: ' + (setup?.error || '') }
-
-  // 레퍼런스 첨부: 각 이미지마다 "+"(CDP) 열고 → 피커 행(CDP) 클릭으로 첨부
-  for (let i = 0; i < refs.length; i++) {
-    const plus = await ex(flowPlusCoordsScript())
-    if (plus?.ok && typeof plus.x === 'number' && typeof plus.y === 'number') {
-      await cdpClick(win, plus.x, plus.y)
-      await wait(1500)
-    } else {
-      console.warn('[AVS] Flow + 버튼 못찾음:', plus?.error)
-      continue
-    }
-    const item = await ex(flowFindRefScript(prefix + '-' + i))
-    if (item?.ok && typeof item.x === 'number' && typeof item.y === 'number') {
-      await cdpClick(win, item.x, item.y)
-      await wait(1500)
-    } else {
-      console.warn('[AVS] Flow 레퍼런스 첨부 실패:', item?.error)
-    }
-  }
-
-  // 프롬프트 입력 + 생성 버튼 좌표
-  const ready = await ex(flowTypePromptScript(prompt))
-  if (!ready?.ok || typeof ready.x !== 'number' || typeof ready.y !== 'number') {
-    return { ok: false, message: 'Flow 생성 준비 실패: ' + (ready?.error || '') }
-  }
-  // 생성 버튼 CDP 진짜 클릭
-  await cdpClick(win, ready.x, ready.y)
-  // 결과 대기 + 회수 (fire-and-forget)
-  await win.webContents.executeJavaScript(flowCaptureScript()).catch(() => {})
-  return { ok: true }
-}
 
 // 소스별 임베드 창 추적 (자동화 명령을 보낼 대상)
 const embedded = new Map<ImageSource, BrowserWindow>()
@@ -180,44 +113,6 @@ function openEmbedded(url: string, title?: string, hidden = false): BrowserWindo
       emitProgress(msg.replace(/^.*\[AVS-GEN\]\s*/, ''))
     }
   })
-  win.loadURL(url)
-  return win
-}
-
-// 배치(멀티 프롬프트)용 — source별 재사용 맵을 쓰지 않고 매번 새 창을 띄운다.
-// 프롬프트 N개 → 창 N개 → 이미지 N장 병렬 생성. 일정 시간 후 자동 정리.
-const batchWindows = new Set<BrowserWindow>()
-function spawnBatchWindow(url: string, title: string): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    title,
-    show: false,
-    autoHideMenuBar: true,
-    webPreferences: {
-      partition: 'persist:embedded',
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      backgroundThrottling: false,
-      preload: path.join(__dirname, '../preload/embed.js')
-    }
-  })
-  win.webContents.setUserAgent(CLEAN_UA)
-  win.webContents.setAudioMuted(true)
-  const inject = (): void => {
-    const { port } = getBridgeInfo()
-    win.webContents.executeJavaScript(grabberScript(port)).catch(() => {})
-  }
-  win.webContents.on('did-finish-load', inject)
-  win.webContents.on('console-message', (_e, _lvl, msg) => {
-    if (msg.includes('[AVS-GEN]')) {
-      console.log('[embed-batch]', msg)
-      emitProgress(msg.replace(/^.*\[AVS-GEN\]\s*/, ''))
-    }
-  })
-  batchWindows.add(win)
-  win.on('closed', () => batchWindows.delete(win))
   win.loadURL(url)
   return win
 }
@@ -331,35 +226,14 @@ export function registerIpc(): void {
       if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
       console.log('[AVS] 이미지 생성 요청: source=' + source)
 
-      // ChatGPT: 사용자 크롬의 확장에서 실행(임베드 창 봇벽 회피). 큐에 넣고 결과를 기다린다.
-      if (source === 'chatgpt') {
-        return await enqueueJob({
-          source,
-          prompt: prompt.trim(),
-          aspect: aspect || '16:9',
-          referenceImages: referenceImages || []
-        })
-      }
-
-      const url = source === 'flow' ? SOURCE_URL.flow : SOURCE_URL.chatgpt
-      const title = source === 'flow' ? 'Google Flow' : 'ChatGPT'
-      // 둘 다 백그라운드(숨김)로 실행
-      const win = openEmbedded(url, title, true)
-      win.webContents.setAudioMuted(true) // 숨김 자동화 창 소리 차단
-      // 창이 막 열렸으면 로드 완료 대기
-      if (win.webContents.isLoadingMainFrame()) {
-        await new Promise<void>((res) => win.webContents.once('did-finish-load', () => res()))
-        await new Promise((res) => setTimeout(res, 1000)) // SPA 초기화 여유
-      }
-      if (source === 'flow') {
-        return await runFlowGenerate(win, prompt, aspect || '16:9', referenceImages || [])
-      }
-      await win.webContents
-        .executeJavaScript(chatgptGenerateScript(prompt, aspect || '16:9', referenceImages || []))
-        .catch((e) => {
-          console.error('[AVS] 자동화 주입 오류:', e)
-        })
-      return { ok: true }
+      // ChatGPT·Flow 모두 사용자 크롬의 확장에서 실행(임베드 창 봇벽/로그인 문제 회피).
+      // 큐에 넣으면 확장이 진짜 크롬(로그인된 탭)에서 생성하고 결과를 갤러리로 보낸다.
+      return await enqueueJob({
+        source,
+        prompt: prompt.trim(),
+        aspect: aspect || '16:9',
+        referenceImages: referenceImages || []
+      })
     }
   )
 
@@ -431,49 +305,16 @@ export function registerIpc(): void {
       const list = (items || []).filter((it) => it && it.prompt && it.prompt.trim())
       if (!list.length) return { ok: false, message: '프롬프트가 없습니다.' }
 
-      // ChatGPT: 각 프롬프트를 확장 작업 큐에 넣는다(임베드 창 봇벽 회피).
-      // 확장이 사용자 크롬에서 순차 생성 → 결과는 onImported 로 갤러리에 도착.
-      if (source === 'chatgpt') {
-        list.forEach((item) => {
-          enqueueJob({
-            source: 'chatgpt',
-            prompt: item.prompt.trim(),
-            aspect: aspect || '16:9',
-            referenceImages: item.images && item.images.length ? item.images : []
-          }).catch(() => {})
-        })
-        return { ok: true, count: list.length }
-      }
-
-      const url = SOURCE_URL[source]
-      const title = source === 'flow' ? 'Google Flow' : 'ChatGPT'
-
-      for (const item of list) {
-        const win = spawnBatchWindow(url, title)
-        if (source === 'flow' && !win.webContents.getURL().includes('/tools/flow')) {
-          // flow 는 도구 페이지에서 시작
-        }
-        if (win.webContents.isLoadingMainFrame()) {
-          await new Promise<void>((res) => win.webContents.once('did-finish-load', () => res()))
-        }
-        await wait(1000) // SPA 초기화 여유
-        const refs = item.images && item.images.length ? item.images : []
-        if (source === 'flow') {
-          // Flow 는 자체 오케스트레이션(CDP). 각 창에서 독립 실행 (fire-and-forget)
-          runFlowGenerate(win, item.prompt.trim(), aspect || '16:9', refs).catch((e) =>
-            console.warn('[AVS] Flow 배치 오류:', e)
-          )
-        } else {
-          win.webContents
-            .executeJavaScript(chatgptGenerateScript(item.prompt.trim(), aspect || '16:9', refs))
-            .catch((e) => console.warn('[AVS] ChatGPT 배치 오류:', e))
-        }
-        // 결과 회수는 onImported 로. 일정 시간 후 창 자동 정리(메모리 보호)
-        setTimeout(() => {
-          if (!win.isDestroyed()) win.close()
-        }, 240000)
-        await wait(1200) // 창 오픈 시차 (동시 부하 완화)
-      }
+      // ChatGPT·Flow 모두 각 프롬프트를 확장 작업 큐에 넣는다(임베드 창 봇벽/로그인 문제 회피).
+      // 확장이 사용자 크롬(로그인된 탭)에서 워커 풀(최대 3탭)로 생성 → 결과는 onImported 로 갤러리에 도착.
+      list.forEach((item) => {
+        enqueueJob({
+          source,
+          prompt: item.prompt.trim(),
+          aspect: aspect || '16:9',
+          referenceImages: item.images && item.images.length ? item.images : []
+        }).catch(() => {})
+      })
       return { ok: true, count: list.length }
     }
   )

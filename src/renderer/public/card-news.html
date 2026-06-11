@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>카드뉴스 만들기</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0c10; --panel:#15171f; --panel2:#1d2029; --line:#2a2e3a;
+    --ink:#f4f5f7; --muted:#8c93a6; --accent:#3d5afe;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Pretendard',system-ui,sans-serif;
+    background:var(--bg);color:var(--ink);
+    height:100vh;overflow:hidden;
+  }
+  /* ---------- Stage (full width) ---------- */
+  .stage{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:32px;gap:18px;overflow:auto;transition:padding-right .25s ease}
+  /* 드로어가 열리면 카드 영역을 왼쪽으로 밀어 겹치지 않게 */
+  body.drawer-open .stage{padding-right:412px}
+  .frame{width:min(72vh,520px,calc(100vw - 120px));aspect-ratio:1/1;overflow:hidden;border-radius:18px;cursor:pointer;
+    box-shadow:0 30px 80px rgba(0,0,0,.5);transition:transform .15s, width .25s ease}
+  body.drawer-open .frame{width:min(72vh,520px,calc(100vw - 500px))}
+  .frame:hover{transform:translateY(-2px)}
+  .scaler{transform-origin:top left}
+  .nav{display:flex;align-items:center;gap:14px}
+  .nav button{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);font-size:18px;cursor:pointer}
+  .nav .pos{font-size:13px;color:var(--muted);font-weight:700;min-width:54px;text-align:center}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:560px}
+  .chip{padding:7px 11px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);
+    font-size:12px;font-weight:700;cursor:pointer;color:var(--muted)}
+  .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .hint{font-size:12px;color:var(--muted)}
+
+  /* 우상단 편집 버튼 */
+  .edit-fab{position:fixed;top:18px;right:18px;z-index:40;padding:10px 16px;border-radius:10px;
+    border:none;background:var(--accent);color:#fff;font-family:inherit;font-weight:800;font-size:13px;
+    cursor:pointer;box-shadow:0 8px 22px rgba(61,90,254,.4)}
+
+  /* ---------- 우측 편집 드로어(모달) ---------- */
+  .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:45;opacity:0;pointer-events:none;
+    transition:opacity .2s}
+  .backdrop.open{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;width:380px;max-width:90vw;height:100vh;z-index:50;
+    background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:22px;
+    transform:translateX(100%);transition:transform .25s ease}
+  .drawer.open{transform:translateX(0)}
+  .drawer-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .drawer-head h1{font-size:17px;font-weight:800;letter-spacing:-.02em}
+  .drawer-head .x{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--ink);font-size:18px;cursor:pointer}
+  .group{margin-top:22px}
+  .group>label{display:block;font-size:11px;font-weight:800;text-transform:uppercase;
+    letter-spacing:.08em;color:var(--muted);margin-bottom:9px}
+  input,textarea{
+    width:100%;background:var(--panel2);border:1px solid var(--line);
+    border-radius:9px;color:var(--ink);padding:10px 12px;
+    font-family:inherit;font-size:13.5px;resize:vertical;
+  }
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  textarea{min-height:70px;line-height:1.5}
+  .field{margin-bottom:12px}
+  .field span{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
+  .field-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+  .field-head span,.field-head label{margin:0}
+  /* 글씨색 버튼 — 기본(미설정)은 체커보드, 색 지정 시 단색 */
+  .mini-sw{width:22px;height:22px;border-radius:6px;border:2px solid #545b6b;cursor:pointer;flex-shrink:0;
+    background-image:linear-gradient(45deg,#3a3f4a 25%,transparent 25%,transparent 75%,#3a3f4a 75%),
+      linear-gradient(45deg,#3a3f4a 25%,#22252e 25%,#22252e 75%,#3a3f4a 75%);
+    background-size:8px 8px;background-position:0 0,4px 4px}
+  .mini-sw:hover{border-color:#7b8395}
+  .swatches{display:flex;gap:8px;flex-wrap:wrap}
+  .sw{width:34px;height:34px;border-radius:8px;cursor:pointer;border:2px solid transparent}
+  .sw.active{border-color:#fff}
+  /* 배경/액센트 색상 칩 */
+  .font-row{display:flex;gap:8px}
+  .font-row select{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    color:var(--ink);padding:9px 10px;font-family:inherit;font-size:12.5px;cursor:pointer;min-width:0}
+  .font-row select:focus{outline:none;border-color:var(--accent)}
+  .size-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+  .size-row>span:first-child{font-size:12px;color:var(--ink);font-weight:600;white-space:nowrap}
+  .size-row input[type=range]{flex:1;accent-color:var(--accent);min-width:0}
+  #fontSizeVal{font-size:12px;color:var(--muted);min-width:38px;text-align:right}
+  .color-cols{display:flex;gap:10px}
+  .color-col{flex:1;display:flex;flex-direction:column;gap:6px}
+  .color-col>span{font-size:12px;color:var(--ink);font-weight:600}
+  .color-chip{width:100%;height:34px;border-radius:8px;border:2px solid #545b6b;cursor:pointer}
+  .color-chip:hover{border-color:#7b8395}
+  /* 색상 피커 모달 */
+  .cp-ov{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.45)}
+  .cp-ov.open{display:flex}
+  .cp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;width:330px;
+    box-shadow:0 24px 60px rgba(0,0,0,.55)}
+  .cp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .cp-head b{font-size:15px;font-weight:800}
+  .cp-head button{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer}
+  .cp-sub{font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:700}
+  .cp-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-bottom:14px}
+  .cp-grid .c{width:100%;aspect-ratio:1/1;border-radius:6px;cursor:pointer;
+    border:1px solid rgba(255,255,255,.08);transition:transform .1s}
+  .cp-grid .c:hover{transform:scale(1.12)}
+  .cp-foot{display:flex;align-items:center;gap:8px}
+  .cp-prev{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);flex-shrink:0}
+  .cp-foot input{flex:1}
+  .cp-eye{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--ink);cursor:pointer;flex-shrink:0;font-size:16px}
+  .btn{display:block;width:100%;text-align:center;padding:11px;border-radius:9px;
+    border:none;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;margin-top:8px}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  .btn-row{display:flex;gap:8px}
+  .btn-row .btn{margin-top:0}
+  .mini{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+
+  /* ---------- CARD (1080x1080) ---------- */
+  .card{width:1080px;height:1080px;position:relative;overflow:hidden;
+    font-family:'Pretendard',sans-serif;background:var(--c-bg);color:var(--c-ink);
+    padding:96px;display:flex;flex-direction:column}
+  .card .topbar{position:absolute;top:0;left:0;width:240px;height:18px;background:var(--c-acc)}
+  .card .kicker{font-size:30px;font-weight:800;letter-spacing:.04em;color:var(--c-acc);
+    margin-bottom:30px;text-transform:uppercase}
+  .card.cover .kicker{display:inline-block;align-self:flex-start;background:var(--c-ink);
+    color:var(--c-bg);padding:16px 30px;border-radius:999px;margin-bottom:48px}
+  .card .num{font-size:200px;font-weight:900;line-height:.85;color:var(--c-acc);
+    letter-spacing:-.04em;margin-bottom:8px}
+  .card .headline{font-size:82px;font-weight:900;line-height:1.1;letter-spacing:-.03em;
+    white-space:pre-wrap}
+  .card.cover .headline{font-size:104px;color:var(--c-ink)}
+  .card .body{font-size:40px;font-weight:500;line-height:1.55;color:var(--c-sub);
+    margin-top:28px;white-space:pre-wrap}
+  .card .spacer{flex:1}
+  .card .footer{display:flex;justify-content:space-between;align-items:center;
+    font-size:30px;font-weight:800}
+  .card .handle{color:var(--c-acc)}
+  .card .dots{display:flex;gap:10px}
+  .card .dot{width:14px;height:14px;border-radius:50%;background:var(--c-dot)}
+  .card .dot.on{background:var(--c-acc)}
+  .card.cover .handle{color:var(--c-ink)}
+  .card.cover .dot.on{background:var(--c-ink)}
+  .card .rule{width:120px;height:10px;background:var(--c-acc);margin:34px 0 0}
+  .card.cover .rule{background:var(--c-ink)}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="frame" id="frame" onclick="openDrawer()" title="클릭하면 편집 패널이 열립니다">
+    <div class="scaler" id="scaler"><div class="card" id="card"></div></div>
+  </div>
+  <div class="nav">
+    <button onclick="prev()">‹</button>
+    <span class="pos" id="pos">1 / 1</span>
+    <button onclick="next()">›</button>
+  </div>
+  <div class="chips" id="slidebar"></div>
+  <div class="hint">카드를 클릭하면 오른쪽에 편집 패널이 열립니다.</div>
+</div>
+
+<button class="edit-fab" onclick="toggleDrawer()">✎ 편집</button>
+
+<div class="backdrop" id="backdrop" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h1>카드 편집</h1>
+    <button class="x" onclick="closeDrawer()">×</button>
+  </div>
+
+  <div class="group">
+    <label>색상</label>
+    <div class="color-cols">
+      <div class="color-col"><span>배경</span><button class="color-chip" id="bgChip" onclick="openCp('bg')"></button></div>
+      <div class="color-col"><span>액센트</span><button class="color-chip" id="accChip" onclick="openCp('accent')"></button></div>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>글씨체</label>
+    <div class="font-row" style="margin-bottom:8px">
+      <select id="fontTgt" onchange="onFontTarget()">
+        <option value="kicker">상단 라벨</option>
+        <option value="headline" selected>제목</option>
+        <option value="body">본문</option>
+        <option value="handle">핸들</option>
+      </select>
+    </div>
+    <div class="font-row">
+      <select id="fontFam" onchange="onFamChange()" style="flex:1.7"></select>
+      <select id="fontWt" onchange="onWtChange()" style="flex:1"></select>
+    </div>
+    <div class="size-row">
+      <span>크기</span>
+      <input type="range" id="fontSize" min="10" max="240" step="1" oninput="onSizeChange(this.value)">
+      <span id="fontSizeVal">82</span>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>슬라이드</label>
+    <div class="btn-row">
+      <button class="btn btn-ghost" onclick="addSlide()">+ 팁 추가</button>
+      <button class="btn btn-ghost" onclick="delSlide()">선택 삭제</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>내용 편집</label>
+    <div id="editor"></div>
+  </div>
+
+  <div class="group">
+    <div class="field-head"><label style="margin:0">브랜드 핸들</label><button class="mini-sw" id="sw-handleColor" onclick="openCp('handleColor')" title="글씨 색 변경"></button></div>
+    <input id="handle" value="@aitoolbee" oninput="setHandle(this.value)">
+  </div>
+
+  <div class="group">
+    <button class="btn btn-primary" onclick="downloadOne()">이 카드 PNG 받기</button>
+    <button class="btn btn-ghost" onclick="downloadAll()">전체 다운로드</button>
+    <p class="mini">받은 이미지를 Meta 비즈니스 스위트에 캐러셀로 올려 예약하면 끝.</p>
+  </div>
+</div>
+
+<!-- 색상 피커 모달 (배경/액센트 공용) -->
+<div class="cp-ov" id="cpOv" onclick="if(event.target===this)closeCp()">
+  <div class="cp">
+    <div class="cp-head"><b id="cpTitle">색상</b><button onclick="closeCp()">×</button></div>
+    <div class="cp-sub">기본 팔레트</div>
+    <div class="cp-grid" id="cpGrid"></div>
+    <div class="cp-foot">
+      <span class="cp-prev" id="cpPrev"></span>
+      <input id="cpHex" placeholder="#000000" oninput="cpHexInput(this.value)">
+      <button class="cp-eye" onclick="cpEyedrop()" title="화면에서 색 추출">⊙</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const THEMES = [
+  {name:'전기 블루', acc:'#3d5afe'},
+  {name:'시그널 옐로우', acc:'#ffe600'},
+  {name:'비비드 코랄', acc:'#ff3b30'},
+  {name:'네온 라임', acc:'#c6ff00'},
+  {name:'핫 핑크', acc:'#ff2d95'},
+];
+const DARK={bg:'#0b0c10', ink:'#ffffff', sub:'#9aa0b0', dot:'rgba(255,255,255,.18)'};
+
+let accent = THEMES[0].acc;
+let bgColor = '#0b0c10'; // 표지 외 카드 배경색(사용자 설정)
+let handleColor = ''; // 브랜드 핸들 글씨색 오버라이드(빈값=기본)
+// 요소별 글씨체(모든 슬라이드 전역). Pretendard 는 CDN 기본.
+const elFont = { kicker:'Pretendard', headline:'Pretendard', body:'Pretendard', handle:'Pretendard' };
+// 요소별 글씨 크기 오버라이드(px). 0이면 기본값 사용.
+const elSize = { kicker:0, headline:0, body:0, handle:0 };
+const SIZE_DEFAULT = { kicker:30, headline:82, body:40, handle:30 };
+let fontTarget = 'headline';
+// 대표 패밀리 + 굵기. css = @font-face / font-family 에 쓰는 고유 이름. file=null 이면 CDN(Pretendard).
+const FAMILIES = [
+  { label:'프리텐다드 (기본)', weights:[ {label:'기본', css:'Pretendard', file:null} ] },
+  { label:'검은고딕', weights:[ {label:'기본', css:'BlackHanSans', file:'BlackHanSans-Regular.ttf'} ] },
+  { label:'카페24 써라운드', weights:[ {label:'기본', css:'Cafe24Ssurround', file:'Cafe24Ssurround-v2.0.ttf'} ] },
+  { label:'고도', weights:[ {label:'M', css:'GodoM', file:'GodoM.ttf'}, {label:'B(굵게)', css:'GodoB', file:'GodoB.ttf'} ] },
+  { label:'고운돋움', weights:[ {label:'기본', css:'GowunDodum', file:'GowunDodum-Regular.ttf'} ] },
+  { label:'레시피코리아', weights:[ {label:'기본', css:'Recipekorea', file:'Recipekorea.ttf'} ] },
+  { label:'리아산스', weights:[
+    {label:'Regular', css:'RiaSans', file:'RiaSans-Regular.ttf'},
+    {label:'Bold', css:'RiaSansBold', file:'RiaSans-Bold.ttf'},
+    {label:'ExtraBold', css:'RiaSansEB', file:'RiaSans-ExtraBold.ttf'} ] },
+  { label:'아리따부리', weights:[
+    {label:'헤어라인', css:'AritaBuriHair', file:'AritaBuriKR-HairLine.ttf'},
+    {label:'Light', css:'AritaBuriLight', file:'AritaBuriKR-Light.ttf'},
+    {label:'Medium', css:'AritaBuriMedium', file:'AritaBuriKR-Medium.ttf'},
+    {label:'SemiBold', css:'AritaBuriSemiBold', file:'AritaBuriKR-SemiBold.ttf'},
+    {label:'Bold', css:'AritaBuriBold', file:'AritaBuriKR-Bold.ttf'} ] },
+  { label:'페이퍼로지', weights:[
+    {label:'Thin', css:'Paperlogy1', file:'Paperlogy-1Thin.ttf'},
+    {label:'ExtraLight', css:'Paperlogy2', file:'Paperlogy-2ExtraLight.ttf'},
+    {label:'Light', css:'Paperlogy3', file:'Paperlogy-3Light.ttf'},
+    {label:'Regular', css:'Paperlogy4', file:'Paperlogy-4Regular.ttf'},
+    {label:'Medium', css:'Paperlogy5', file:'Paperlogy-5Medium.ttf'},
+    {label:'SemiBold', css:'Paperlogy6', file:'Paperlogy-6SemiBold.ttf'},
+    {label:'Bold', css:'Paperlogy7', file:'Paperlogy-7Bold.ttf'},
+    {label:'ExtraBold', css:'Paperlogy8', file:'Paperlogy-8ExtraBold.ttf'},
+    {label:'Black', css:'Paperlogy9', file:'Paperlogy-9Black.ttf'} ] },
+  { label:'프리젠테이션', weights:[ {label:'기본', css:'Freesentation', file:'FreesentationVF.ttf'} ] },
+  { label:'MBC1961 굴림', weights:[ {label:'기본', css:'MBC1961Gulim', file:'MBC1961Gulim.otf'} ] },
+  { label:'Swagger (영문)', weights:[ {label:'기본', css:'Swagger', file:'Swagger.ttf'} ] },
+  { label:'Palladium (영문)', weights:[ {label:'기본', css:'Palladium', file:'Palladium.ttf'} ] },
+];
+let cur = 0;
+let handle = '@aitoolbee';
+
+// type: cover | tip | outro
+let slides = [
+  {type:'cover', kicker:'AI 툴 꿀팁', headline:'몰라서 손해 본\n프롬프트 한 줄', body:''},
+  {type:'tip', kicker:'TIP', headline:'역할부터 박아라', body:'“너는 10년차 카피라이터다”\n한 줄이 결과 품질을 바꾼다.'},
+  {type:'tip', kicker:'TIP', headline:'예시를 같이 줘라', body:'원하는 톤의 샘플 1~2개를 붙이면\n적중률이 눈에 띄게 올라간다.'},
+  {type:'tip', kicker:'TIP', headline:'형식을 지정해라', body:'표·번호·JSON 등 출력 형식을\n먼저 정하면 다듬는 시간이 준다.'},
+  {type:'outro', kicker:'SAVE & FOLLOW', headline:'내일도 한 개\nAI 툴 팁', body:'팔로우하면 매일 올라옵니다.'},
+];
+
+const $ = s => document.querySelector(s);
+
+function tipIndex(i){ let n=0; for(let k=0;k<=i;k++){ if(slides[k].type==='tip') n++; } return n; }
+
+function coverInk(hex){
+  const n=parseInt(hex.slice(1),16),r=n>>16&255,g=n>>8&255,b=n&255;
+  const lum=(0.2126*r+0.7152*g+0.0722*b)/255;
+  return lum>0.6 ? '#0b0c10' : '#ffffff';
+}
+
+function renderCard(i, node){
+  const s = slides[i];
+  node.className = 'card ' + s.type;
+  node.style.setProperty('--c-acc', accent);
+  if(s.type==='cover'){
+    const ink = coverInk(accent);
+    node.style.setProperty('--c-bg', accent);
+    node.style.setProperty('--c-ink', ink);
+    node.style.setProperty('--c-sub', ink==='#ffffff'?'rgba(255,255,255,.85)':'rgba(0,0,0,.7)');
+    node.style.setProperty('--c-dot', ink==='#ffffff'?'rgba(255,255,255,.35)':'rgba(0,0,0,.25)');
+  } else {
+    const ink = coverInk(bgColor);
+    node.style.setProperty('--c-bg', bgColor);
+    node.style.setProperty('--c-ink', ink);
+    node.style.setProperty('--c-sub', ink === '#ffffff' ? 'rgba(255,255,255,.62)' : 'rgba(0,0,0,.62)');
+    node.style.setProperty('--c-dot', ink === '#ffffff' ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)');
+  }
+
+  // 요소별 글씨색 + 글씨체 오버라이드 (설정 시 인라인으로 기본값 덮어씀)
+  const estyle = (col, fam, size) => {
+    let st = '';
+    if (col) st += `color:${col};`;
+    if (fam && fam !== 'Pretendard') st += `font-family:'${fam}',sans-serif;`;
+    if (size) st += `font-size:${size}px;`;
+    return st ? ` style="${st}"` : '';
+  };
+  const kStyle = estyle(s.kColor, elFont.kicker, elSize.kicker);
+  const hStyle = estyle(s.hColor, elFont.headline, elSize.headline);
+  const bStyle = estyle(s.bColor, elFont.body, elSize.body);
+  const hdStyle = estyle(handleColor, elFont.handle, elSize.handle);
+
+  const dots = slides.map((_,k)=>`<span class="dot ${k===i?'on':''}"></span>`).join('');
+  let mid = '';
+  if(s.type==='tip'){
+    mid = `<div class="num">${String(tipIndex(i)).padStart(2,'0')}</div>
+           <div class="headline"${hStyle}>${esc(s.headline)}</div>
+           ${s.body?`<div class="body"${bStyle}>${esc(s.body)}</div>`:''}`;
+  } else if(s.type==='cover'){
+    mid = `<div class="headline"${hStyle}>${esc(s.headline)}</div>
+           <div class="rule"></div>
+           ${s.body?`<div class="body"${bStyle}>${esc(s.body)}</div>`:''}`;
+  } else {
+    mid = `<div class="headline"${hStyle}>${esc(s.headline)}</div>
+           ${s.body?`<div class="body"${bStyle}>${esc(s.body)}</div>`:''}`;
+  }
+
+  node.innerHTML = `
+    <div class="topbar"></div>
+    <div class="kicker"${kStyle}>${esc(s.kicker||'')}</div>
+    ${mid}
+    <div class="spacer"></div>
+    <div class="footer">
+      <span class="handle"${hdStyle}>${esc(handle)}</span>
+      <span class="dots">${dots}</span>
+    </div>`;
+}
+function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function fitScaler(){
+  const frame = $('.frame').clientWidth;
+  $('#scaler').style.transform = `scale(${frame/1080})`;
+}
+
+// 카드+슬라이드바만 다시 그림 (편집 필드는 건드리지 않음 → 입력 포커스 유지)
+function drawCard(){
+  renderCard(cur, $('#card'));
+  fitScaler();
+  $('#pos').textContent = `${cur+1} / ${slides.length}`;
+  buildSlidebar();
+}
+// 전체(편집 필드 포함) — 슬라이드 전환 등에서만 사용
+function draw(){
+  drawCard();
+  buildEditor();
+}
+
+function buildColorChips(){
+  $('#bgChip').style.background = bgColor;
+  $('#accChip').style.background = accent;
+  const hs = document.getElementById('sw-handleColor');
+  if (hs && handleColor) hs.style.background = handleColor;
+}
+function setAccent(a){accent=a;buildColorChips();drawCard();}
+function setBg(b){bgColor=b;buildColorChips();drawCard();}
+
+// ── 글씨체 (대표 패밀리 + 굵기) ──
+function injectFonts(){
+  const faces = [];
+  FAMILIES.forEach(f => f.weights.forEach(w => {
+    if (w.file) faces.push(`@font-face{font-family:'${w.css}';src:url('fonts/${encodeURIComponent(w.file)}');font-display:swap;}`);
+  }));
+  const st = document.createElement('style'); st.textContent = faces.join('\n'); document.head.appendChild(st);
+}
+function famIndexByCss(css){
+  for (let i = 0; i < FAMILIES.length; i++) if (FAMILIES[i].weights.some(w => w.css === css)) return i;
+  return 0;
+}
+function buildFontSelect(){
+  $('#fontFam').innerHTML = FAMILIES.map((f, i) => `<option value="${i}">${f.label}</option>`).join('');
+  syncFontDropdowns();
+}
+function buildWeightSelect(fi, selCss){
+  const fam = FAMILIES[fi];
+  $('#fontWt').innerHTML = fam.weights.map((w, j) => `<option value="${j}">${w.label}</option>`).join('');
+  const wi = Math.max(0, fam.weights.findIndex(w => w.css === selCss));
+  $('#fontWt').value = wi;
+  $('#fontWt').disabled = fam.weights.length <= 1; // 굵기 1종이면 비활성
+}
+function syncFontDropdowns(){
+  const css = elFont[fontTarget];
+  const fi = famIndexByCss(css);
+  $('#fontFam').value = fi;
+  buildWeightSelect(fi, css);
+  syncSize();
+}
+function syncSize(){
+  const v = elSize[fontTarget] || SIZE_DEFAULT[fontTarget];
+  $('#fontSize').value = v; $('#fontSizeVal').textContent = v;
+}
+function onSizeChange(v){ elSize[fontTarget] = +v; $('#fontSizeVal').textContent = v; drawCard(); }
+function onFontTarget(){ fontTarget = $('#fontTgt').value; syncFontDropdowns(); }
+function onFamChange(){
+  const fi = +$('#fontFam').value;
+  const css = FAMILIES[fi].weights[0].css; // 대표(첫) 굵기로
+  elFont[fontTarget] = css; buildWeightSelect(fi, css); drawCard();
+}
+function onWtChange(){
+  const fi = +$('#fontFam').value, wj = +$('#fontWt').value;
+  elFont[fontTarget] = FAMILIES[fi].weights[wj].css; drawCard();
+}
+
+// ── 색상 피커 모달 (배경/액센트 공용) ──
+const PALETTE = [
+  '#000000','#434343','#666666','#999999','#b7b7b7','#cccccc','#d9d9d9','#ffffff',
+  '#f4cccc','#fce5cd','#fff2cc','#d9ead3','#d0e0e3','#cfe2f3','#d9d2e9','#ead1dc',
+  '#ea9999','#f9cb9c','#ffe599','#b6d7a8','#a2c4c9','#9fc5e8','#b4a7d6','#d5a6bd',
+  '#e06666','#f6b26b','#ffd966','#93c47d','#76a5af','#6fa8dc','#8e7cc3','#c27ba6',
+  '#cc0000','#e69138','#f1c232','#6aa84f','#45818e','#3d85c6','#674ea7','#a64d79',
+  '#990000','#b45f06','#bf9000','#38761d','#134f5c','#0b5394','#351c75','#741b47',
+  '#0b0c10','#1d2029','#2c1d10','#3d5afe','#ffe600','#ff3b30','#c6ff00','#ff2d95'
+];
+let cpTarget = 'accent';
+const CP_TITLES = { bg:'배경 색상', accent:'액센트 색상', kColor:'상단 라벨 글씨색', hColor:'제목 글씨색', bColor:'본문 글씨색', handleColor:'브랜드 핸들 글씨색' };
+function curColor(t){
+  if(t==='bg') return bgColor;
+  if(t==='accent') return accent;
+  if(t==='handleColor') return handleColor;
+  return slides[cur][t] || ''; // kColor / hColor / bColor (슬라이드별)
+}
+function openCp(t){
+  cpTarget = t;
+  $('#cpTitle').textContent = CP_TITLES[t] || '색상';
+  $('#cpGrid').innerHTML = PALETTE.map(c =>
+    `<div class="c" style="background:${c}" onclick="cpApply('${c}')" title="${c}"></div>`).join('');
+  const cval = curColor(t);
+  $('#cpHex').value = cval; $('#cpPrev').style.background = cval || 'transparent';
+  $('#cpOv').classList.add('open');
+}
+function closeCp(){ $('#cpOv').classList.remove('open'); }
+function cpApply(c){
+  c = (c || '').trim(); if (c && c[0] !== '#') c = '#' + c;
+  if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(c)) return;
+  if (cpTarget === 'bg') setBg(c);
+  else if (cpTarget === 'accent') setAccent(c);
+  else if (cpTarget === 'handleColor') { handleColor = c; drawCard(); }
+  else { slides[cur][cpTarget] = c; drawCard(); } // kColor / hColor / bColor
+  $('#cpHex').value = c; $('#cpPrev').style.background = c;
+  const sw = document.getElementById('sw-' + cpTarget); // 해당 색 버튼 즉시 갱신
+  if (sw) sw.style.background = c;
+}
+function cpHexInput(v){ cpApply(v); }
+async function cpEyedrop(){
+  if (!window.EyeDropper) { alert('이 환경은 스포이드를 지원하지 않습니다'); return; }
+  try { const r = await new EyeDropper().open(); cpApply(r.sRGBHex); } catch (e) {}
+}
+
+function buildSlidebar(){
+  $('#slidebar').innerHTML = slides.map((s,i)=>{
+    const label = s.type==='cover'?'표지':s.type==='outro'?'마무리':`#${tipIndex(i)}`;
+    return `<div class="chip ${i===cur?'active':''}" onclick="go(${i})">${label}</div>`;
+  }).join('');
+}
+function buildEditor(){
+  const s = slides[cur];
+  const sw = (id,col) => `<button class="mini-sw" id="sw-${id}" ${col?`style="background:${col}"`:''} onclick="openCp('${id}')" title="글씨 색 변경"></button>`;
+  $('#editor').innerHTML = `
+    <div class="field"><div class="field-head"><span>상단 라벨</span>${sw('kColor',s.kColor)}</div><input value="${attr(s.kicker)}" oninput="upd('kicker',this.value)"></div>
+    <div class="field"><div class="field-head"><span>제목 (큰 글씨)</span>${sw('hColor',s.hColor)}</div><textarea oninput="upd('headline',this.value)">${esc(s.headline)}</textarea></div>
+    <div class="field"><div class="field-head"><span>본문</span>${sw('bColor',s.bColor)}</div><textarea oninput="upd('body',this.value)">${esc(s.body)}</textarea></div>`;
+}
+function attr(t){return (t||'').replace(/"/g,'&quot;');}
+function upd(k,v){slides[cur][k]=v;drawCard();} // 편집 필드 재생성 안 함 → 입력 중 포커스 유지
+function setHandle(v){handle=v;drawCard();}
+function go(i){cur=i;draw();openDrawer();}
+function prev(){cur=(cur-1+slides.length)%slides.length;draw();}
+function next(){cur=(cur+1)%slides.length;draw();}
+function addSlide(){
+  const insertAt = cur+1;
+  slides.splice(insertAt,0,{type:'tip',kicker:'TIP',headline:'새 팁 제목',body:'설명을 입력하세요.'});
+  cur=insertAt;draw();
+}
+function delSlide(){
+  if(slides.length<=1)return;
+  slides.splice(cur,1); cur=Math.min(cur,slides.length-1); draw();
+}
+
+// ── 편집 드로어(우측 패널) — 열리면 카드 영역을 왼쪽으로 밀어 겹치지 않게 ──
+function refit(){ fitScaler(); [80,180,300].forEach(t=>setTimeout(fitScaler,t)); } // 폭 트랜지션 동안 카드 스케일 재계산
+function openDrawer(){ document.body.classList.add('drawer-open'); $('#drawer').classList.add('open'); refit(); }
+function closeDrawer(){ document.body.classList.remove('drawer-open'); $('#drawer').classList.remove('open'); refit(); }
+function toggleDrawer(){ $('#drawer').classList.contains('open') ? closeDrawer() : openDrawer(); }
+document.addEventListener('keydown', e => {
+  if(e.key!=='Escape') return;
+  if($('#cpOv').classList.contains('open')) closeCp(); // 피커가 떠있으면 피커부터 닫음
+  else closeDrawer();
+});
+
+async function snap(i){
+  await document.fonts.ready;
+  const holder=document.createElement('div');
+  holder.style.cssText='position:fixed;left:-99999px;top:0;';
+  const c=document.createElement('div');
+  holder.appendChild(c);document.body.appendChild(holder);
+  renderCard(i,c);
+  await new Promise(r=>setTimeout(r,60));
+  const canvas=await html2canvas(c,{scale:1,width:1080,height:1080,
+    windowWidth:1080,windowHeight:1080,backgroundColor:null,useCORS:true});
+  document.body.removeChild(holder);
+  return canvas.toDataURL('image/png');
+}
+function trigger(data,name){
+  const a=document.createElement('a');a.href=data;a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+}
+async function downloadOne(){
+  trigger(await snap(cur), `card_${String(cur+1).padStart(2,'0')}.png`);
+}
+async function downloadAll(){
+  for(let i=0;i<slides.length;i++){
+    trigger(await snap(i), `card_${String(i+1).padStart(2,'0')}.png`);
+    await new Promise(r=>setTimeout(r,350));
+  }
+}
+
+window.addEventListener('resize',fitScaler);
+injectFonts();buildColorChips();buildFontSelect();draw();
+document.fonts.ready.then(draw);
+</script>
+</body>
+</html>

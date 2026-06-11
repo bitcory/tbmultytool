@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TB MTOOL Companion",
-  "version": "0.1.13",
+  "version": "0.1.28",
   "description": "TB MTOOL 앱의 생성 작업(ChatGPT·Grok·Suno 등)을 사용자 크롬에서 자동 실행하고, 결과를 앱으로 보냅니다 (로컬 전용).",
   "permissions": [
     "storage",
@@ -16,6 +16,8 @@
     "https://chat.openai.com/*",
     "https://*.oaiusercontent.com/*",
     "https://labs.google/*",
+    "https://flow-content.google/*",
+    "https://*.flow-content.google/*",
     "https://*.googleusercontent.com/*",
     "https://*.usercontent.google.com/*",
     "https://*.gstatic.com/*",
@@ -67,6 +69,25 @@
       "js": [
         "suno.js"
       ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://labs.google/*"
+      ],
+      "js": [
+        "flow.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://labs.google/*"
+      ],
+      "js": [
+        "flow-main.js"
+      ],
+      "world": "MAIN",
       "run_at": "document_idle"
     }
   ],

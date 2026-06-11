@@ -6,6 +6,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 
 let deployedDir = ''
+let deployedVersion = '' // 디스크에 배포된 확장 버전(확장 자동 reload 판단용)
 
 async function readVersion(dir: string): Promise<string | null> {
   try {
@@ -27,6 +28,7 @@ export async function deployExtension(): Promise<string> {
   try {
     const sv = await readVersion(src)
     if (!sv) return dest // 번들 확장 없음(이상)
+    deployedVersion = sv // 복사 여부와 무관하게 디스크의 현재 버전
     const dv = await readVersion(dest)
     if (sv !== dv) {
       await fs.rm(dest, { recursive: true, force: true })
@@ -42,4 +44,8 @@ export async function deployExtension(): Promise<string> {
 
 export function getExtensionDir(): string {
   return deployedDir
+}
+
+export function getDeployedExtVersion(): string {
+  return deployedVersion
 }

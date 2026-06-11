@@ -22,6 +22,14 @@ export default function Wizard() {
     const onMsg = async (e: MessageEvent) => {
       const m = e.data
       if (m?.source !== 'avs-proposal') return
+      if (m.type === 'stop') {
+        // 진행/대기 중인 생성 작업 전체 취소 (이미지·영상·음악)
+        pending.current = null
+        musicActive.current = false
+        await window.electronAPI.bridge.cancel().catch(() => {})
+        post({ source: 'avs-app', type: 'stopped', boardLabel: m.boardLabel })
+        return
+      }
       if (m.type === 'generate') {
         pending.current = { label: m.boardLabel, kind: 'image' }
         const r = await window.electronAPI.bridge.generate(m.imgSource || 'chatgpt', m.prompt, m.referenceImages, m.aspect)
