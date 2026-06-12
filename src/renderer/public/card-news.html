@@ -22,9 +22,11 @@
     padding:32px;gap:18px;overflow:auto;transition:padding-right .25s ease}
   /* 드로어가 열리면 카드 영역을 왼쪽으로 밀어 겹치지 않게 */
   body.drawer-open .stage{padding-right:412px}
-  .frame{width:min(72vh,520px,calc(100vw - 120px));aspect-ratio:1/1;overflow:hidden;border-radius:18px;cursor:pointer;
-    box-shadow:0 30px 80px rgba(0,0,0,.5);transition:transform .15s, width .25s ease}
-  body.drawer-open .frame{width:min(72vh,520px,calc(100vw - 500px))}
+  /* flex-shrink:0 필수 — 세로 공간이 부족하면 frame 높이만 눌려 정사각형이 깨지고 카드 하단(핸들)이 잘린다.
+     calc(100vh - 230px) = 위 패널 등으로 화면이 낮아져도 nav/칩 포함 한 화면에 들어가게 */
+  .frame{width:min(72vh,520px,calc(100vw - 120px),calc(100vh - 230px));aspect-ratio:1/1;overflow:hidden;border-radius:18px;cursor:pointer;
+    flex-shrink:0;box-shadow:0 30px 80px rgba(0,0,0,.5);transition:transform .15s, width .25s ease}
+  body.drawer-open .frame{width:min(72vh,520px,calc(100vw - 500px),calc(100vh - 230px))}
   .frame:hover{transform:translateY(-2px)}
   .scaler{transform-origin:top left}
   .nav{display:flex;align-items:center;gap:14px}
@@ -111,9 +113,16 @@
   .cp-eye{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);
     color:var(--ink);cursor:pointer;flex-shrink:0;font-size:16px}
   .btn{display:block;width:100%;text-align:center;padding:11px;border-radius:9px;
-    border:none;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;margin-top:8px}
+    border:none;font-family:inherit;font-weight:800;font-size:13.5px;cursor:pointer;margin-top:8px;
+    transition:background .12s,border-color .12s,color .12s}
   .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#5870ff}
   .btn-ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  .btn-ghost:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn:disabled{opacity:.55;cursor:default}
+  /* 다운로드 줄 버튼 — 평소엔 중립(어두운 배경+테두리), 호버 시에만 파란색 */
+  .dl-btn{font-size:13px;padding:12px 8px;white-space:nowrap;border-color:#343a49}
+  .dl-btn:hover:not(:disabled){background:var(--accent);border-color:var(--accent);color:#fff}
   .btn-row{display:flex;gap:8px}
   .btn-row .btn{margin-top:0}
   .mini{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
@@ -145,6 +154,60 @@
   .card.cover .dot.on{background:var(--c-ink)}
   .card .rule{width:120px;height:10px;background:var(--c-acc);margin:34px 0 0}
   .card.cover .rule{background:var(--c-ink)}
+  /* 배경 이미지 (AI 자동 생성/직접 첨부) — 셰이드를 깔아 글씨 가독성 확보.
+     기본은 어두운 셰이드+흰 글씨, 밝은 이미지(자동 감지)는 밝은 셰이드+검은 글씨 */
+  .card .bgimg{position:absolute;inset:0;background-size:cover;background-position:center}
+  .card .bgshade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.62))}
+  .card.bg-light .bgshade{background:linear-gradient(180deg,rgba(255,255,255,.30),rgba(255,255,255,.55))}
+  .card.has-bg>:is(.kicker,.num,.headline,.body,.rule,.footer,.duo-head,.duo-wrap,.duo-cta){position:relative;z-index:1}
+  .card.has-bg .topbar{z-index:1}
+  /* 프롬프트(2단) 카드 — 아이템 2개가 흰 패널로 나란히, 상단 제목 + 하단 CTA */
+  .card.duo{padding:64px 56px}
+  .card .duo-head{font-size:56px;font-weight:900;text-align:center;letter-spacing:-.02em;
+    margin-bottom:36px;white-space:pre-wrap}
+  .card .duo-wrap{display:flex;gap:32px;flex:1;min-height:0}
+  .card .duo-item{flex:1;background:rgba(255,255,255,.96);border-radius:26px;padding:26px;
+    display:flex;flex-direction:column;color:#1b1d25;box-shadow:0 14px 40px rgba(0,0,0,.25)}
+  .card .duo-num{display:inline;font-size:42px;font-weight:900;color:var(--c-acc)}
+  .card .duo-title{font-size:38px;font-weight:900;line-height:1.15;color:#1b1d25;
+    margin:4px 0 16px;white-space:pre-wrap}
+  .card .duo-img{width:100%;aspect-ratio:1/1;border-radius:16px;background-size:cover;
+    background-position:center;background-color:#e8eaf2;margin-bottom:16px;flex-shrink:0}
+  .card .duo-desc{font-size:25px;line-height:1.45;color:#3c4150;white-space:pre-wrap}
+  .card .duo-cta{margin-top:32px;background:rgba(255,255,255,.94);color:#1b1d25;border-radius:999px;
+    padding:18px 40px;text-align:center;font-size:28px;font-weight:800;align-self:center;max-width:90%}
+  /* 빈 페이지의 자유 배치 텍스트(제목/본문/핸들) — 드래그 이동, 코너 핸들로 글자 확대/축소 */
+  .card .tx{position:absolute;z-index:2;cursor:move;touch-action:none;margin:0;white-space:pre-wrap;max-width:888px}
+  .card .tx.sel{outline:4px dashed rgba(61,90,254,.85);outline-offset:4px}
+  /* 자유 배치 이미지(스티커) — 드래그 이동, 가장자리 핸들(상하좌우) 늘리기, 코너 핸들 비율 확대 */
+  .card .ov{position:absolute;z-index:2;cursor:move;touch-action:none}
+  .card .ov.sel{outline:4px dashed rgba(61,90,254,.85);outline-offset:4px}
+  .card .ov img{width:100%;display:block;pointer-events:none}
+  .card .ov .ovh{position:absolute;background:var(--accent);border:3px solid #fff;
+    box-shadow:0 2px 10px rgba(0,0,0,.45);z-index:3}
+  .card .ov .ovh-se{right:-18px;bottom:-18px;width:34px;height:34px;border-radius:50%;cursor:nwse-resize}
+  .card .ov .ovh-e{right:-13px;top:50%;transform:translateY(-50%);width:22px;height:58px;border-radius:11px;cursor:ew-resize}
+  .card .ov .ovh-w{left:-13px;top:50%;transform:translateY(-50%);width:22px;height:58px;border-radius:11px;cursor:ew-resize}
+  .card .ov .ovh-n{top:-13px;left:50%;transform:translateX(-50%);width:58px;height:22px;border-radius:11px;cursor:ns-resize}
+  .card .ov .ovh-s{bottom:-13px;left:50%;transform:translateX(-50%);width:58px;height:22px;border-radius:11px;cursor:ns-resize}
+  /* 갤러리 피커 (앱에서 받아둔 이미지 재사용) */
+  .gal-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:420px;overflow-y:auto}
+  .gal-grid img{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:8px;cursor:pointer;
+    border:2px solid transparent;transition:border-color .1s}
+  .gal-grid img:hover{border-color:var(--accent)}
+  .gal-empty{grid-column:1/-1;font-size:12px;color:var(--muted);padding:24px;text-align:center}
+  .gal-tgt{display:flex;gap:6px;margin-bottom:10px}
+  .gal-tgt .chip{font-size:11.5px}
+  .ov-allchk{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);cursor:pointer;font-weight:600}
+  .ov-allchk input{width:auto;accent-color:var(--accent);cursor:pointer}
+  .ov-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+  .ov-row img{width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--line);flex-shrink:0}
+  .ov-ctl{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+  .ov-rad{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+  .ov-rad input[type=range]{flex:1;accent-color:var(--accent);min-width:0}
+  .ov-rad b{min-width:30px;text-align:right;color:var(--ink)}
+  .ov-btns{display:flex;gap:6px}
+  .ov-btns .btn{margin-top:0;padding:7px;font-size:12px}
 </style>
 </head>
 <body>
@@ -203,7 +266,12 @@
     <label>슬라이드</label>
     <div class="btn-row">
       <button class="btn btn-ghost" onclick="addSlide()">+ 팁 추가</button>
+      <button class="btn btn-ghost" onclick="addBlankSlide()">+ 빈 페이지</button>
       <button class="btn btn-ghost" onclick="delSlide()">선택 삭제</button>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn btn-ghost" onclick="addDuoSlide()">+ 프롬프트(2단) 카드</button>
+      <button class="btn btn-ghost" onclick="resetDeck()" title="자동 저장 포함 전체 초기화" style="flex:0 0 90px">초기화</button>
     </div>
   </div>
 
@@ -218,9 +286,21 @@
   </div>
 
   <div class="group">
-    <button class="btn btn-primary" onclick="downloadOne()">이 카드 PNG 받기</button>
-    <button class="btn btn-ghost" onclick="downloadAll()">전체 다운로드</button>
+    <div class="btn-row">
+      <button class="btn btn-ghost dl-btn" onclick="downloadOne()">⬇ 이 카드 PNG</button>
+      <button class="btn btn-ghost dl-btn" id="dlAllBtn" onclick="downloadAll()">🗂 전체 zip</button>
+      <button class="btn btn-ghost dl-btn" onclick="openDlFolder()" title="다운로드 폴더 열기" style="flex:0 0 46px;padding:11px 0">📁</button>
+    </div>
     <p class="mini">받은 이미지를 Meta 비즈니스 스위트에 캐러셀로 올려 예약하면 끝.</p>
+  </div>
+</div>
+
+<!-- 갤러리 피커 모달 — 앱 갤러리에 받아둔 이미지를 재사용 -->
+<div class="cp-ov" id="galOv" onclick="if(event.target===this)closeGal()">
+  <div class="cp" style="width:540px">
+    <div class="cp-head"><b>갤러리에서 선택</b><button onclick="closeGal()">×</button></div>
+    <div class="gal-tgt" id="galTgtRow"></div>
+    <div class="gal-grid" id="galGrid"></div>
   </div>
 </div>
 
@@ -292,15 +372,31 @@ const FAMILIES = [
 ];
 let cur = 0;
 let handle = '@aitoolbee';
+let ovSel = -1; // 선택된 자유 배치 이미지 인덱스(-1=없음) — 선택된 것에만 가이드(핸들) 표시
+let gImgs = []; // 전체 카드 공통 스티커("전체 적용" 체크) — 모든 슬라이드에 같은 위치/크기로 표시
+let ovAll = false; // 자유 배치 "전체 적용" 모드
+let txSel = null; // 빈 페이지에서 선택된 자유 배치 텍스트 키('headline'|'body'|'handle')
+// 빈 페이지 자유 배치 텍스트 기본 위치/크기 (1080 좌표계)
+const TX_DEF = { headline:{x:96,y:120,size:96}, body:{x:96,y:420,size:40}, handle:{x:96,y:930,size:30} };
+// 슬라이드 i 의 자유 배치 이미지 목록 = 슬라이드 전용 + 전체 공통 (combined 인덱스 기준)
+function ovList(i){ return (slides[i].imgs||[]).concat(gImgs); }
+// combined 인덱스 k → 실제 배열/인덱스 (삭제·배경 전환용)
+function ovRef(k){
+  const loc = slides[cur].imgs||[];
+  return k < loc.length ? { arr: loc, idx: k } : { arr: gImgs, idx: k - loc.length };
+}
 
-// type: cover | tip | outro
-let slides = [
-  {type:'cover', kicker:'AI 툴 꿀팁', headline:'몰라서 손해 본\n프롬프트 한 줄', body:''},
-  {type:'tip', kicker:'TIP', headline:'역할부터 박아라', body:'“너는 10년차 카피라이터다”\n한 줄이 결과 품질을 바꾼다.'},
-  {type:'tip', kicker:'TIP', headline:'예시를 같이 줘라', body:'원하는 톤의 샘플 1~2개를 붙이면\n적중률이 눈에 띄게 올라간다.'},
-  {type:'tip', kicker:'TIP', headline:'형식을 지정해라', body:'표·번호·JSON 등 출력 형식을\n먼저 정하면 다듬는 시간이 준다.'},
-  {type:'outro', kicker:'SAVE & FOLLOW', headline:'내일도 한 개\nAI 툴 팁', body:'팔로우하면 매일 올라옵니다.'},
-];
+// type: cover | tip | outro | blank | duo
+function defaultSlides(){
+  return [
+    {type:'cover', kicker:'AI 툴 꿀팁', headline:'몰라서 손해 본\n프롬프트 한 줄', body:''},
+    {type:'tip', kicker:'TIP', headline:'역할부터 박아라', body:'“너는 10년차 카피라이터다”\n한 줄이 결과 품질을 바꾼다.'},
+    {type:'tip', kicker:'TIP', headline:'예시를 같이 줘라', body:'원하는 톤의 샘플 1~2개를 붙이면\n적중률이 눈에 띄게 올라간다.'},
+    {type:'tip', kicker:'TIP', headline:'형식을 지정해라', body:'표·번호·JSON 등 출력 형식을\n먼저 정하면 다듬는 시간이 준다.'},
+    {type:'outro', kicker:'SAVE & FOLLOW', headline:'내일도 한 개\nAI 툴 팁', body:'팔로우하면 매일 올라옵니다.'},
+  ];
+}
+let slides = defaultSlides();
 
 const $ = s => document.querySelector(s);
 
@@ -312,9 +408,10 @@ function coverInk(hex){
   return lum>0.6 ? '#0b0c10' : '#ffffff';
 }
 
-function renderCard(i, node){
+// ui=true(미리보기)일 때만 크기조정 핸들 등 편집 UI 를 그린다 — PNG 스냅샷(ui=false)에는 안 찍힘
+function renderCard(i, node, ui){
   const s = slides[i];
-  node.className = 'card ' + s.type;
+  node.className = 'card ' + s.type + (s.bg ? ' has-bg' + (s.bgLight ? ' bg-light' : '') : '');
   node.style.setProperty('--c-acc', accent);
   if(s.type==='cover'){
     const ink = coverInk(accent);
@@ -328,6 +425,12 @@ function renderCard(i, node){
     node.style.setProperty('--c-ink', ink);
     node.style.setProperty('--c-sub', ink === '#ffffff' ? 'rgba(255,255,255,.62)' : 'rgba(0,0,0,.62)');
     node.style.setProperty('--c-dot', ink === '#ffffff' ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)');
+  }
+  if(s.bg){ // 배경 이미지: 밝기(자동 감지)에 맞춰 글씨색 강제 — 어두우면 흰 글씨, 밝으면 검은 글씨
+    const light = !!s.bgLight;
+    node.style.setProperty('--c-ink', light ? '#0b0c10' : '#ffffff');
+    node.style.setProperty('--c-sub', light ? 'rgba(0,0,0,.72)' : 'rgba(255,255,255,.85)');
+    node.style.setProperty('--c-dot', light ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.35)');
   }
 
   // 요소별 글씨색 + 글씨체 오버라이드 (설정 시 인라인으로 기본값 덮어씀)
@@ -353,20 +456,70 @@ function renderCard(i, node){
     mid = `<div class="headline"${hStyle}>${esc(s.headline)}</div>
            <div class="rule"></div>
            ${s.body?`<div class="body"${bStyle}>${esc(s.body)}</div>`:''}`;
+  } else if(s.type==='blank'){
+    mid = ''; // 빈 페이지 텍스트는 아래 txs(자유 배치 텍스트)로 렌더
+  } else if(s.type==='duo'){
+    // 프롬프트(2단) 카드: 아이템 2개(번호+제목+이미지+설명), headline=상단 제목, body=하단 CTA
+    const it = s.items || [];
+    mid = `${s.headline?`<div class="duo-head"${hStyle}>${esc(s.headline)}</div>`:''}
+      <div class="duo-wrap">${[0,1].map(j=>{
+        const o = it[j]; if(!o) return '';
+        return `<div class="duo-item">
+          <div><span class="duo-num">${esc(o.n||String(j+1))}.</span></div>
+          <div class="duo-title">${esc(o.title||'')}</div>
+          <div class="duo-img"${o.img?` style="background-image:url('${o.img}')"`:''}></div>
+          ${o.desc?`<div class="duo-desc">${esc(o.desc)}</div>`:''}
+        </div>`}).join('')}</div>
+      ${s.body?`<div class="duo-cta"${bStyle}>${esc(s.body)}</div>`:''}`;
   } else {
     mid = `<div class="headline"${hStyle}>${esc(s.headline)}</div>
            ${s.body?`<div class="body"${bStyle}>${esc(s.body)}</div>`:''}`;
   }
 
+  const handles = '<span class="ovh ovh-n" data-dir="n"></span><span class="ovh ovh-s" data-dir="s"></span>'
+    + '<span class="ovh ovh-w" data-dir="w"></span><span class="ovh ovh-e" data-dir="e"></span>'
+    + '<span class="ovh ovh-se" data-dir="se"></span>';
+
+  // 빈 페이지: 제목/본문/핸들을 자유 배치 텍스트로 — 드래그 이동 + 핸들(상하좌우/코너)로 글자 확대/축소.
+  // 핸들명은 기본 숨김(s.hideHandle) — 핸들 입력칸에 다시 타이핑하면 나타남.
+  let txs = '';
+  if (s.type === 'blank') {
+    const items = [
+      s.headline ? ['headline', s.headline, s.hColor] : null,
+      s.body ? ['body', s.body, s.bColor] : null,
+      handle && !s.hideHandle ? ['handle', handle, handleColor] : null
+    ].filter(Boolean);
+    txs = items.map(([key, text, col]) => {
+      const c = (s.tx && s.tx[key]) || TX_DEF[key];
+      const sel2 = ui && txSel === key;
+      const fam = elFont[key];
+      let st = `left:${c.x}px;top:${c.y}px;font-size:${c.size}px;`;
+      if (col) st += `color:${col};`;
+      if (fam && fam !== 'Pretendard') st += `font-family:'${fam}',sans-serif;`;
+      return `<div class="tx ${key}${sel2?' sel':''}" data-tx="${key}" style="${st}">${esc(text)}${sel2?handles:''}</div>`;
+    }).join('');
+  }
+  // 가이드(핸들+점선)는 선택된 이미지에만 — 다른 곳을 클릭하면 사라지고 이미지를 클릭하면 다시 표시
+  const ovs = ovList(i).map((o,k)=>{
+    const sel = ui && k === ovSel;
+    return `<div class="ov${sel?' sel':''}" data-ov="${k}" style="left:${o.x}px;top:${o.y}px;width:${o.w}px;${o.h?`height:${o.h}px;`:''}">
+       <img src="${o.src}" style="${o.h?'height:100%;object-fit:fill;':''}${o.r?`border-radius:${o.r}px;`:''}">${sel?handles:''}
+     </div>`}).join('');
+
+  // 빈 페이지는 상단바/라벨/푸터(핸들·도트) 없이 깨끗한 캔버스로
+  const chrome = s.type !== 'blank';
   node.innerHTML = `
-    <div class="topbar"></div>
-    <div class="kicker"${kStyle}>${esc(s.kicker||'')}</div>
+    ${s.bg?`<div class="bgimg" style="background-image:url('${s.bg}')"></div><div class="bgshade"></div>`:''}
+    ${chrome && s.type!=='duo'?`<div class="topbar"></div>
+    <div class="kicker"${kStyle}>${esc(s.kicker||'')}</div>`:''}
     ${mid}
-    <div class="spacer"></div>
-    <div class="footer">
+    ${s.type==='duo'?'':'<div class="spacer"></div>'}
+    ${chrome?`<div class="footer">
       <span class="handle"${hdStyle}>${esc(handle)}</span>
       <span class="dots">${dots}</span>
-    </div>`;
+    </div>`:''}
+    ${txs}
+    ${ovs}`;
 }
 function esc(t){return (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -375,12 +528,47 @@ function fitScaler(){
   $('#scaler').style.transform = `scale(${frame/1080})`;
 }
 
+// ── 자동 저장 (IndexedDB — 이미지 dataURL 이 커서 localStorage 5MB 로는 부족) ──
+const DB_NAME = 'cardnews', DB_STORE = 'state';
+function idbOpen(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(DB_STORE);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function saveState(){
+  try{
+    const db = await idbOpen();
+    const data = { v:1, slides, handle, accent, bgColor, handleColor,
+      elFont:{...elFont}, elSize:{...elSize}, gImgs, ovAll, cur };
+    db.transaction(DB_STORE, 'readwrite').objectStore(DB_STORE).put(data, 'deck');
+  }catch(e){}
+}
+let saveTimer = null;
+function scheduleSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveState, 600); }
+async function loadState(){
+  try{
+    const db = await idbOpen();
+    return await new Promise((res) => {
+      const rq = db.transaction(DB_STORE).objectStore(DB_STORE).get('deck');
+      rq.onsuccess = () => res(rq.result || null); rq.onerror = () => res(null);
+    });
+  }catch(e){ return null; }
+}
+function resetDeck(){
+  if(!confirm('카드뉴스를 처음 상태로 초기화할까요? (자동 저장된 내용도 지워집니다)')) return;
+  slides = defaultSlides(); gImgs = []; ovAll = false; cur = 0; ovSel = -1; txSel = null;
+  draw();
+}
+
 // 카드+슬라이드바만 다시 그림 (편집 필드는 건드리지 않음 → 입력 포커스 유지)
 function drawCard(){
-  renderCard(cur, $('#card'));
+  renderCard(cur, $('#card'), true);
   fitScaler();
   $('#pos').textContent = `${cur+1} / ${slides.length}`;
   buildSlidebar();
+  scheduleSave(); // 모든 변경이 여길 지나므로 여기서 자동 저장
 }
 // 전체(편집 필드 포함) — 슬라이드 전환 등에서만 사용
 function draw(){
@@ -490,28 +678,212 @@ async function cpEyedrop(){
 
 function buildSlidebar(){
   $('#slidebar').innerHTML = slides.map((s,i)=>{
-    const label = s.type==='cover'?'표지':s.type==='outro'?'마무리':`#${tipIndex(i)}`;
+    const label = s.type==='cover'?'표지':s.type==='outro'?'마무리':s.type==='blank'?'빈'
+      :s.type==='duo'?((s.items&&s.items[0]&&s.items[0].n)||'')+'·'+((s.items&&s.items[1]&&s.items[1].n)||''):`#${tipIndex(i)}`;
     return `<div class="chip ${i===cur?'active':''}" onclick="go(${i})">${label}</div>`;
   }).join('');
+}
+function imgSectionHtml(s){
+  return `<div class="field"><div class="field-head"><span>이미지</span>
+        <label class="ov-allchk" title="체크하면 자유 배치 이미지가 모든 카드에 같은 위치로 표시됩니다">
+          <input type="checkbox" ${ovAll?'checked':''} onchange="toggleOvAll(this.checked)"> 전체 카드에 적용</label></div>
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="pickBg()">배경 첨부</button>
+        ${s.bg?'<button class="btn btn-ghost" onclick="clearBg()">배경 제거</button>':''}
+        <button class="btn btn-ghost" onclick="addImg()">+ 자유 배치</button>
+        <button class="btn btn-ghost" onclick="openGallery('sticker')" title="앱 갤러리에서 받아둔 이미지 재사용">갤러리</button>
+      </div>
+      ${ovList(cur).map((o,k)=>`
+        <div class="ov-row">
+          <img src="${o.src}">
+          <div class="ov-ctl">
+            <div class="ov-rad"><span>둥근 모서리${k>=(s.imgs||[]).length?' · <b style="color:var(--accent)">전체</b>':''}</span>
+              <input type="range" min="0" max="400" value="${o.r||0}" oninput="setOvRad(${k},this.value)">
+              <b id="ovr-${k}">${o.r||0}</b></div>
+            <div class="ov-btns">
+              <button class="btn btn-ghost" onclick="imgToBg(${k})">배경으로</button>
+              <button class="btn btn-ghost" onclick="delImg(${k})">삭제</button>
+            </div>
+          </div>
+        </div>`).join('')}
+      ${ovList(cur).length?'<p class="mini">드래그로 이동 · 상하좌우 핸들로 늘리기 · 코너 점으로 비율 확대.</p>':''}
+    </div>`;
 }
 function buildEditor(){
   const s = slides[cur];
   const sw = (id,col) => `<button class="mini-sw" id="sw-${id}" ${col?`style="background:${col}"`:''} onclick="openCp('${id}')" title="글씨 색 변경"></button>`;
+  if (s.type === 'duo') { // 프롬프트(2단) 카드 전용 편집
+    const it = s.items = s.items && s.items.length ? s.items : [{n:'1'},{n:'2'}];
+    $('#editor').innerHTML = `
+      <div class="field"><div class="field-head"><span>상단 제목</span>${sw('hColor',s.hColor)}</div><input value="${attr(s.headline)}" oninput="upd('headline',this.value)"></div>
+      ${[0,1].map(j=>`
+        <div class="field" style="border:1px solid var(--line);border-radius:10px;padding:10px">
+          <div class="field-head"><span>아이템 ${j+1}</span></div>
+          <input style="margin-bottom:6px;width:80px" placeholder="번호" value="${attr(it[j]&&it[j].n||'')}" oninput="updItem(${j},'n',this.value)">
+          <input style="margin-bottom:6px" placeholder="제목" value="${attr(it[j]&&it[j].title||'')}" oninput="updItem(${j},'title',this.value)">
+          <textarea placeholder="설명" oninput="updItem(${j},'desc',this.value)">${esc(it[j]&&it[j].desc||'')}</textarea>
+          <div class="btn-row" style="margin-top:6px">
+            <button class="btn btn-ghost" onclick="pickItemImg(${j})">이미지 첨부</button>
+            <button class="btn btn-ghost" onclick="openGallery('item${j}')">갤러리</button>
+            ${it[j]&&it[j].img?`<button class="btn btn-ghost" onclick="clearItemImg(${j})">제거</button>`:''}
+          </div>
+        </div>`).join('')}
+      <div class="field"><div class="field-head"><span>하단 CTA</span>${sw('bColor',s.bColor)}</div><input value="${attr(s.body)}" oninput="upd('body',this.value)"></div>
+      ${imgSectionHtml(s)}`;
+    return;
+  }
   $('#editor').innerHTML = `
     <div class="field"><div class="field-head"><span>상단 라벨</span>${sw('kColor',s.kColor)}</div><input value="${attr(s.kicker)}" oninput="upd('kicker',this.value)"></div>
     <div class="field"><div class="field-head"><span>제목 (큰 글씨)</span>${sw('hColor',s.hColor)}</div><textarea oninput="upd('headline',this.value)">${esc(s.headline)}</textarea></div>
-    <div class="field"><div class="field-head"><span>본문</span>${sw('bColor',s.bColor)}</div><textarea oninput="upd('body',this.value)">${esc(s.body)}</textarea></div>`;
+    <div class="field"><div class="field-head"><span>본문</span>${sw('bColor',s.bColor)}</div><textarea oninput="upd('body',this.value)">${esc(s.body)}</textarea></div>
+    ${imgSectionHtml(s)}`;
 }
+function updItem(j,k,v){ const it=(slides[cur].items=slides[cur].items||[{},{}]); it[j]=it[j]||{}; it[j][k]=v; drawCard(); }
+function pickItemImg(j){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return;
+    const fr=new FileReader(); fr.onload=()=>{ updItem(j,'img',fr.result); buildEditor(); }; fr.readAsDataURL(f); };
+  inp.click();
+}
+function clearItemImg(j){ const it=slides[cur].items; if(it&&it[j]){ delete it[j].img; draw(); } }
+
+// ── 갤러리 피커: 앱 갤러리(ChatGPT/Flow 등에서 받아둔 이미지)를 재사용 ──
+// target: sticker(자유 배치) | bg(배경) | item0/item1(2단 카드 아이템)
+let galTarget = 'sticker';
+let galItems = []; // [{id, thumb}]
+function openGallery(target){
+  galTarget = target || 'sticker';
+  galShow(null); // 로딩 표시
+  $('#galOv').classList.add('open');
+  window.parent !== window && window.parent.postMessage({ type:'cardnews:request-gallery' }, '*');
+}
+function closeGal(){ $('#galOv').classList.remove('open'); }
+function galSetTarget(t){ galTarget = t; galShow(galItems); }
+function galShow(items){
+  // 아이템 컨텍스트(item0/1)로 열렸으면 대상 전환 칩 숨김
+  const isItem = galTarget.indexOf('item') === 0;
+  $('#galTgtRow').innerHTML = isItem ? '' : ['sticker','bg'].map((t) =>
+    `<div class="chip ${galTarget===t?'active':''}" onclick="galSetTarget('${t}')">${t==='sticker'?'자유 배치로':'배경으로'}</div>`).join('');
+  if (items === null) { $('#galGrid').innerHTML = '<div class="gal-empty">갤러리 불러오는 중…</div>'; return; }
+  galItems = items;
+  $('#galGrid').innerHTML = items.length
+    ? items.map((it) => `<img src="${it.thumb}" onclick="galPick('${it.id}')">`).join('')
+    : '<div class="gal-empty">갤러리에 이미지가 없습니다.<br>이미지 생성 페이지에서 먼저 생성하거나 가져오세요.</div>';
+}
+function galPick(id){
+  window.parent.postMessage({ type:'cardnews:gallery-pick', id, target: galTarget }, '*');
+  closeGal();
+}
+// "전체 적용" 토글: 켜면 현재 슬라이드의 자유 배치 이미지를 전체 공통으로, 끄면 현재 슬라이드 전용으로 되돌림
+function toggleOvAll(on){
+  ovAll = !!on; ovSel = -1;
+  if (on) { const loc = slides[cur].imgs||[]; gImgs.push(...loc); slides[cur].imgs = []; }
+  else { (slides[cur].imgs = slides[cur].imgs||[]).push(...gImgs); gImgs = []; }
+  draw();
+}
+function setOvRad(k,v){
+  const o = ovList(cur)[k]; if(!o) return;
+  o.r = +v; const lb = document.getElementById('ovr-'+k); if (lb) lb.textContent = v;
+  drawCard(); // 편집 필드는 안 건드림 → 슬라이더 드래그 유지
+}
+// ── 자유 배치 이미지(스티커) ──
+// 추가 공통 경로: 버튼/붙여넣기/드래그앤드롭 모두 여기로. x,y 생략 시 중앙 부근.
+function addSticker(src, x, y){
+  // "전체 적용" 모드면 전체 공통 배열로, 아니면 현재 슬라이드 전용으로
+  (ovAll ? gImgs : (slides[cur].imgs=slides[cur].imgs||[])).push({src, x: x!=null?x:340, y: y!=null?y:340, w:400});
+  ovSel = ovList(cur).length - 1; txSel = null; // 방금 추가한 이미지를 선택해 가이드 표시
+  draw();
+}
+function addImg(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return;
+    const fr=new FileReader(); fr.onload=()=>addSticker(fr.result); fr.readAsDataURL(f); };
+  inp.click();
+}
+// 클립보드 이미지 붙여넣기(Cmd/Ctrl+V) → 자유 배치로 추가
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData && e.clipboardData.items; if (!items) return;
+  for (const it of items) {
+    if (it.kind === 'file' && it.type.startsWith('image/')) {
+      const f = it.getAsFile(); if (!f) continue;
+      e.preventDefault();
+      const fr = new FileReader(); fr.onload = () => addSticker(fr.result); fr.readAsDataURL(f);
+      return;
+    }
+  }
+});
+// 이미지 파일 드래그앤드롭 → 자유 배치로 추가. 카드 위에 놓으면 그 지점에 배치.
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  let x = null, y = null;
+  const r = $('#card').getBoundingClientRect();
+  if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+    const scale = r.width / 1080; // 드롭 지점을 1080 좌표로 변환, 기본 폭(400) 기준 중앙 정렬
+    x = Math.round((e.clientX - r.left) / scale) - 200;
+    y = Math.round((e.clientY - r.top) / scale) - 150;
+  }
+  files.forEach((f, i) => {
+    const fr = new FileReader();
+    fr.onload = () => addSticker(fr.result, x!=null ? x + i*40 : null, y!=null ? y + i*40 : null);
+    fr.readAsDataURL(f);
+  });
+});
+function delImg(k){ const r=ovRef(k); r.arr.splice(r.idx,1); ovSel=-1; draw(); }
+function imgToBg(k){ const r=ovRef(k); const o=r.arr[r.idx]; r.arr.splice(r.idx,1); ovSel=-1; setSlideBg(slides[cur], o.src); buildEditor(); }
+// 배경 이미지 평균 밝기를 재서(32x32 축소 샘플) 밝은 이미지면 검은 글씨 모드로 전환
+function setSlideBg(s, dataUrl){
+  s.bg = dataUrl; s.bgLight = false;
+  const im = new Image();
+  im.onload = () => {
+    try{
+      const cv = document.createElement('canvas'); cv.width = cv.height = 32;
+      const cx = cv.getContext('2d'); cx.drawImage(im, 0, 0, 32, 32);
+      const d = cx.getImageData(0, 0, 32, 32).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+      s.bgLight = (sum / (d.length / 4) / 255) > 0.6;
+    }catch(e){}
+    if (s.bg === dataUrl) draw();
+  };
+  im.src = dataUrl;
+  draw();
+}
+function pickBg(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+  inp.onchange=()=>{ const f=inp.files&&inp.files[0]; if(!f)return;
+    const fr=new FileReader(); fr.onload=()=>{ setSlideBg(slides[cur], fr.result); }; fr.readAsDataURL(f); };
+  inp.click();
+}
+function clearBg(){ delete slides[cur].bg; delete slides[cur].bgLight; draw(); }
 function attr(t){return (t||'').replace(/"/g,'&quot;');}
 function upd(k,v){slides[cur][k]=v;drawCard();} // 편집 필드 재생성 안 함 → 입력 중 포커스 유지
-function setHandle(v){handle=v;drawCard();}
-function go(i){cur=i;draw();openDrawer();}
-function prev(){cur=(cur-1+slides.length)%slides.length;draw();}
-function next(){cur=(cur+1)%slides.length;draw();}
+function setHandle(v){
+  handle=v;
+  // 빈 페이지에서 핸들을 지웠어도(hideHandle) 핸들 입력칸에 다시 타이핑하면 그 슬라이드에 다시 표시
+  if(slides[cur].type==='blank' && v) delete slides[cur].hideHandle;
+  drawCard();
+}
+function go(i){cur=i;ovSel=-1;txSel=null;draw();openDrawer();}
+function prev(){cur=(cur-1+slides.length)%slides.length;ovSel=-1;txSel=null;draw();}
+function next(){cur=(cur+1)%slides.length;ovSel=-1;txSel=null;draw();}
 function addSlide(){
   const insertAt = cur+1;
   slides.splice(insertAt,0,{type:'tip',kicker:'TIP',headline:'새 팁 제목',body:'설명을 입력하세요.'});
   cur=insertAt;draw();
+}
+function addBlankSlide(){
+  const insertAt = cur+1;
+  slides.splice(insertAt,0,{type:'blank',kicker:'',headline:'',body:'',hideHandle:true}); // 핸들명은 기본 미표시
+  cur=insertAt;ovSel=-1;txSel=null;draw();
+}
+function addDuoSlide(){
+  const insertAt = cur+1;
+  slides.splice(insertAt,0,{type:'duo',kicker:'',headline:'상단 제목',body:'',
+    items:[{n:'1',title:'아이템 1',desc:'설명을 입력하세요.'},{n:'2',title:'아이템 2',desc:'설명을 입력하세요.'}]});
+  cur=insertAt;ovSel=-1;txSel=null;draw();
 }
 function delSlide(){
   if(slides.length<=1)return;
@@ -549,16 +921,209 @@ function trigger(data,name){
 async function downloadOne(){
   trigger(await snap(cur), `card_${String(cur+1).padStart(2,'0')}.png`);
 }
+function tellApp(message){
+  if (window.parent !== window) window.parent.postMessage({ type:'cardnews:status', message }, '*');
+}
 async function downloadAll(){
-  for(let i=0;i<slides.length;i++){
-    trigger(await snap(i), `card_${String(i+1).padStart(2,'0')}.png`);
-    await new Promise(r=>setTimeout(r,350));
+  const btn = document.getElementById('dlAllBtn');
+  try {
+    if (window.parent !== window) {
+      // 앱 안(iframe): PNG 들을 모아 앱에 zip 저장 요청 (앱이 저장 다이얼로그 표시)
+      const items = [];
+      for (let i=0;i<slides.length;i++) {
+        if (btn) { btn.disabled = true; btn.textContent = `렌더링 ${i+1}/${slides.length}`; }
+        items.push({ name:`card_${String(i+1).padStart(2,'0')}.png`, dataUrl: await snap(i) });
+      }
+      tellApp('전체 zip — 저장 위치를 선택하세요');
+      window.parent.postMessage({ type:'cardnews:export-zip', items, name:'card-news' }, '*');
+      return;
+    }
+    // 단독 실행(브라우저): 기존처럼 한 장씩 다운로드
+    for(let i=0;i<slides.length;i++){
+      trigger(await snap(i), `card_${String(i+1).padStart(2,'0')}.png`);
+      await new Promise(r=>setTimeout(r,350));
+    }
+  } catch (e) {
+    tellApp('전체 zip 실패: ' + (e && e.message || e));
+    alert('전체 zip 실패: ' + (e && e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '전체 zip'; }
   }
 }
+function openDlFolder(){
+  if (window.parent !== window) window.parent.postMessage({ type:'cardnews:open-folder' }, '*');
+}
+
+// ── 스티커 드래그 이동/크기조정 ──
+// 카드 좌표계는 1080 기준(스케일 보정). 드래그 중엔 DOM 스타일만 갱신하고 상태는 객체에 직접 기록
+// (drawCard 로 다시 그리면 잡고 있던 요소가 사라져 드래그가 끊긴다).
+// dir: move(이동) | n/s/w/e(한 방향 늘리기=스트레치) | se(코너, 비율 유지 확대)
+let ovDrag = null;
+let txDrag = null; // 빈 페이지 텍스트 드래그 상태 (move | resize=글자 크기)
+(function setupOvDrag(){
+  const cardEl = $('#card');
+  cardEl.addEventListener('pointerdown', (e) => {
+    let ov = e.target.closest('.ov');
+    let tx = e.target.closest('.tx');
+    if (!ov && !tx) { // 빈 곳 클릭 → 선택 해제(가이드 숨김)
+      if (ovSel >= 0 || txSel) { ovSel = -1; txSel = null; drawCard(); }
+      return;
+    }
+    // 빈 페이지의 자유 배치 텍스트(제목/본문/핸들)
+    if (tx && !ov) {
+      e.preventDefault(); e.stopPropagation();
+      const key = tx.dataset.tx;
+      const s = slides[cur];
+      s.tx = s.tx || {};
+      const conf = s.tx[key] = s.tx[key] || { ...TX_DEF[key] }; // 기본값을 슬라이드에 구체화
+      if (txSel !== key) { txSel = key; ovSel = -1; drawCard(); tx = cardEl.querySelector(`.tx[data-tx="${key}"]`) || tx; }
+      const th = e.target.closest('.ovh');
+      txDrag = { conf, el: tx, dir: th ? th.dataset.dir : 'move', sx: e.clientX, sy: e.clientY,
+        ox: conf.x, oy: conf.y, osize: conf.size, ow: tx.offsetWidth, oh: tx.offsetHeight };
+      return;
+    }
+    const k = +ov.dataset.ov;
+    const o = ovList(cur)[k]; if (!o) return;
+    e.preventDefault(); e.stopPropagation();
+    if (ovSel !== k) { // 이미지 클릭 → 선택(가이드 표시). 다시 그려지므로 요소를 재조회해 드래그 이어감
+      ovSel = k; txSel = null; drawCard();
+      ov = cardEl.querySelector(`.ov[data-ov="${k}"]`) || ov;
+    }
+    const h = e.target.closest('.ovh');
+    const dir = h ? h.dataset.dir : 'move';
+    // 높이가 auto(비율 유지)였던 이미지는 offsetHeight 가 1080 좌표계의 실제 높이
+    ovDrag = { o, el: ov, dir, sx: e.clientX, sy: e.clientY, ox: o.x, oy: o.y, ow: o.w, oh: o.h || ov.offsetHeight };
+    if (dir !== 'move' && dir !== 'se' && !o.h) {
+      // 한 방향 늘리기 시작 → 높이를 고정값으로 전환(아니면 폭 변경 시 비율 따라 높이도 변함)
+      o.h = ovDrag.oh;
+      const im = ov.querySelector('img'); if (im) { im.style.height = '100%'; im.style.objectFit = 'fill'; }
+      ov.style.height = o.h + 'px';
+    }
+  });
+  // 클릭이 frame 의 openDrawer 로 번지지 않게 (드래그 후 의도치 않은 드로어 토글 방지)
+  cardEl.addEventListener('click', (e) => { if (e.target.closest('.ov')) e.stopPropagation(); });
+  // 이미지 밖 어디를 눌러도(카드 옆 여백, 드로어 등) 선택 해제.
+  // 단, 드로어의 이미지 컨트롤(.ov-row: 모서리 슬라이더/배경으로/삭제)은 예외.
+  // (.ov 클릭은 위 핸들러가 stopPropagation 하므로 여기 안 옴)
+  document.addEventListener('pointerdown', (e) => {
+    if (ovSel < 0 && !txSel) return;
+    if (e.target.closest('.ov') || e.target.closest('.ov-row') || e.target.closest('.tx')) return;
+    ovSel = -1; txSel = null; drawCard();
+  });
+  // Delete/Backspace: 선택된 텍스트(제목/본문/핸들)나 이미지를 삭제 — 편집창에 다시 쓰면 복귀.
+  // 드로어 입력칸에서 타이핑 중일 때는 동작하지 않음.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    if (!txSel && ovSel < 0) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    e.preventDefault();
+    const s = slides[cur];
+    if (txSel === 'headline') s.headline = '';
+    else if (txSel === 'body') s.body = '';
+    else if (txSel === 'handle') s.hideHandle = true; // 이 슬라이드에서만 숨김 — 핸들칸에 타이핑하면 복귀
+    else if (ovSel >= 0) { const r = ovRef(ovSel); r.arr.splice(r.idx, 1); }
+    txSel = null; ovSel = -1; draw();
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (txDrag) { // 빈 페이지 텍스트: 이동 / 핸들(상하좌우·코너) 어느 쪽을 끌어도 글자 크기 비례 조절
+      const scale = $('#frame').clientWidth / 1080;
+      const dx = (e.clientX - txDrag.sx) / scale, dy = (e.clientY - txDrag.sy) / scale;
+      const d = txDrag, c = d.conf, st = d.el.style;
+      if (d.dir === 'move') {
+        c.x = Math.round(d.ox + dx); c.y = Math.round(d.oy + dy);
+        st.left = c.x + 'px'; st.top = c.y + 'px';
+      } else {
+        // 중심에서 멀어지는 방향으로 끌면 커지고 가까워지면 작아진다
+        let f = 1;
+        if (d.dir === 'e' || d.dir === 'se') f = (d.ow + dx) / d.ow;
+        else if (d.dir === 'w') f = (d.ow - dx) / d.ow;
+        else if (d.dir === 's') f = (d.oh + dy) / d.oh;
+        else if (d.dir === 'n') f = (d.oh - dy) / d.oh;
+        c.size = Math.max(12, Math.round(d.osize * f));
+        st.fontSize = c.size + 'px';
+      }
+      return;
+    }
+    if (!ovDrag) return;
+    const scale = $('#frame').clientWidth / 1080;
+    const dx = (e.clientX - ovDrag.sx) / scale, dy = (e.clientY - ovDrag.sy) / scale;
+    const d = ovDrag, o = d.o, st = d.el.style;
+    if (d.dir === 'move') {
+      o.x = Math.round(d.ox + dx); o.y = Math.round(d.oy + dy);
+      st.left = o.x + 'px'; st.top = o.y + 'px';
+    } else if (d.dir === 'e') {
+      o.w = Math.max(60, Math.round(d.ow + dx)); st.width = o.w + 'px';
+    } else if (d.dir === 'w') {
+      o.w = Math.max(60, Math.round(d.ow - dx)); o.x = d.ox + (d.ow - o.w);
+      st.width = o.w + 'px'; st.left = o.x + 'px';
+    } else if (d.dir === 's') {
+      o.h = Math.max(60, Math.round(d.oh + dy)); st.height = o.h + 'px';
+    } else if (d.dir === 'n') {
+      o.h = Math.max(60, Math.round(d.oh - dy)); o.y = d.oy + (d.oh - o.h);
+      st.height = o.h + 'px'; st.top = o.y + 'px';
+    } else if (d.dir === 'se') { // 비율 유지 확대/축소
+      o.w = Math.max(60, Math.round(d.ow + dx));
+      st.width = o.w + 'px';
+      if (o.h) { o.h = Math.max(60, Math.round(d.oh * o.w / d.ow)); st.height = o.h + 'px'; }
+    }
+  });
+  window.addEventListener('pointerup', () => { if (ovDrag || txDrag) { ovDrag = null; txDrag = null; drawCard(); } });
+})();
+
+// ── 앱(부모 창)과의 postMessage 연동 — AI 자동 생성이 슬라이드/배경을 주입 ──
+window.addEventListener('message', (e) => {
+  const d = e.data || {};
+  if (d.type === 'cardnews:set-slides' && Array.isArray(d.slides) && d.slides.length) {
+    slides = d.slides.map((s) => ({
+      type: ['cover','outro','blank','duo'].indexOf(s.type) >= 0 ? s.type : 'tip',
+      kicker: s.kicker || '', headline: s.headline || '', body: s.body || '',
+      items: Array.isArray(s.items) ? s.items.slice(0,2).map((o)=>({
+        n: o.n != null ? String(o.n) : '', title: o.title || '', desc: o.desc || '', img: o.img || undefined
+      })) : undefined
+    }));
+    if (d.handle) { handle = String(d.handle); const h = $('#handle'); if (h) h.value = handle; }
+    cur = 0; draw();
+    d.slides.forEach((s, i) => { if (s.bg) setSlideBg(slides[i], s.bg); });
+  } else if (d.type === 'cardnews:set-bg' && typeof d.index === 'number' && slides[d.index]) {
+    if (d.dataUrl) setSlideBg(slides[d.index], d.dataUrl);
+    else { delete slides[d.index].bg; delete slides[d.index].bgLight; draw(); }
+  } else if (d.type === 'cardnews:set-item-img' && typeof d.index === 'number' && slides[d.index]
+      && slides[d.index].items && slides[d.index].items[d.item]) {
+    slides[d.index].items[d.item].img = d.dataUrl || undefined;
+    if (d.index === cur) draw(); // 보고 있는 카드면 즉시 반영
+    else scheduleSave();
+  } else if (d.type === 'cardnews:gallery-list') {
+    galShow(Array.isArray(d.items) ? d.items : []);
+  } else if (d.type === 'cardnews:gallery-image' && d.dataUrl) {
+    const t = d.target || 'sticker';
+    if (t === 'bg') setSlideBg(slides[cur], d.dataUrl);
+    else if (t === 'item0' || t === 'item1') { updItem(+t.slice(4), 'img', d.dataUrl); buildEditor(); }
+    else addSticker(d.dataUrl);
+  }
+});
+try { if (window.parent !== window) window.parent.postMessage({ type: 'cardnews:ready' }, '*'); } catch (e) {}
 
 window.addEventListener('resize',fitScaler);
-injectFonts();buildColorChips();buildFontSelect();draw();
-document.fonts.ready.then(draw);
+injectFonts();
+// 자동 저장된 덱 복원 후 첫 렌더 (없으면 기본 덱)
+loadState().then((st) => {
+  if (st && Array.isArray(st.slides) && st.slides.length) {
+    slides = st.slides;
+    handle = st.handle || handle;
+    accent = st.accent || accent;
+    bgColor = st.bgColor || bgColor;
+    handleColor = st.handleColor || '';
+    if (st.elFont) Object.assign(elFont, st.elFont);
+    if (st.elSize) Object.assign(elSize, st.elSize);
+    gImgs = Array.isArray(st.gImgs) ? st.gImgs : [];
+    ovAll = !!st.ovAll;
+    cur = Math.min(st.cur || 0, slides.length - 1);
+    const h = $('#handle'); if (h) h.value = handle;
+  }
+  buildColorChips(); buildFontSelect(); draw();
+});
+document.fonts.ready.then(()=>drawCard());
 </script>
 </body>
 </html>

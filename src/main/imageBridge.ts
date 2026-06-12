@@ -6,7 +6,7 @@ import { promises as fs, createReadStream } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { app, net } from 'electron'
-import type { BridgeInfo, BridgeJob, ImageSource, ImportedImage } from '@shared/types'
+import type { BridgeInfo, BridgeJob, BridgeJobResult, ImageSource, ImportedImage } from '@shared/types'
 import { getDeployedExtVersion } from './extensionDeploy'
 
 const PREFERRED_PORT = 47321
@@ -28,7 +28,7 @@ export function setDebugEval(fn: (target: string, js: string) => Promise<unknown
 // 실제 로그인된 페이지에서 실행하고 결과를 /import + /job-status 로 돌려준다.
 interface PendingJob {
   job: BridgeJob
-  resolve: (r: { ok: boolean; message?: string }) => void
+  resolve: (r: BridgeJobResult) => void
   timer: ReturnType<typeof setTimeout>
   taken: boolean
 }
@@ -114,7 +114,7 @@ setInterval(() => {
 }, 5000)
 
 /** 작업을 큐에 넣고, 확장이 완료/실패를 보고할 때 resolve 되는 Promise 를 반환. */
-export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<{ ok: boolean; message?: string }> {
+export function enqueueJob(input: Omit<BridgeJob, 'id'>): Promise<BridgeJobResult> {
   return new Promise((resolve) => {
     const job: BridgeJob = { id: crypto.randomUUID(), ...input }
     const timer = setTimeout(() => {
@@ -138,12 +138,12 @@ function takeJob(source: string): BridgeJob | null {
   return p.job
 }
 
-function finishJob(id: string, ok: boolean, message?: string): void {
+function finishJob(id: string, ok: boolean, message?: string, extra?: { text?: string; imageId?: string }): void {
   const i = jobQueue.findIndex((p) => p.job.id === id)
   if (i < 0) return
   const [p] = jobQueue.splice(i, 1)
   clearTimeout(p.timer)
-  p.resolve({ ok, message })
+  p.resolve({ ok, message, ...extra })
 }
 
 // 레이트리밋 등으로 확장이 작업을 포기 → 큐에 그대로 두고 다시 가져갈 수 있게(taken 해제).
@@ -418,12 +418,16 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
       json(res, 200, { ok: true, canceled: isJobCanceled(id) })
       return
     }
-    // 확장이 작업 진행/완료/실패를 보고 — { id, status:'progress'|'done'|'error', message? }
+    // 확장이 작업 진행/완료/실패를 보고 — { id, status:'progress'|'done'|'error', message?, text?, imageId? }
     if (req.method === 'POST' && req.url === '/job-status') {
       try {
-        const { id, status, message } = JSON.parse(await readBody(req))
+        const { id, status, message, text, imageId } = JSON.parse(await readBody(req))
         if (message) jobStatusNotify(String(message))
-        if (status === 'done') finishJob(String(id), true)
+        if (status === 'done')
+          finishJob(String(id), true, undefined, {
+            text: text != null ? String(text) : undefined,
+            imageId: imageId != null ? String(imageId) : undefined
+          })
         else if (status === 'retry') requeueJob(String(id)) // 레이트리밋 등 → 큐에 되돌림
         else if (status === 'error') finishJob(String(id), false, message ? String(message) : '확장에서 생성 실패')
         json(res, 200, { ok: true })

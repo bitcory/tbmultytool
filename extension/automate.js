@@ -217,10 +217,11 @@
     report('프롬프트 입력 중…')
     if (!(await typePrompt(PROMPT, REFS.length > 0))) throw new Error('프롬프트 입력 실패(전송버튼 미활성 — 참조 업로드 지연일 수 있음)')
 
-    let send = getSendButton(), t = 0
-    while ((!send || send.disabled) && t++ < 30) { await sleep(150); send = getSendButton() }
-    if (!send || send.disabled) throw new Error('전송 버튼 비활성')
-    await clickEl(send)
+    // 주의: 변수명을 sendBtn 으로 — send(메시지 함수)를 가리면 위의 need-login 경로가 TDZ 로 깨진다.
+    let sendBtn = getSendButton(), t = 0
+    while ((!sendBtn || sendBtn.disabled) && t++ < 30) { await sleep(150); sendBtn = getSendButton() }
+    if (!sendBtn || sendBtn.disabled) throw new Error('전송 버튼 비활성')
+    await clickEl(sendBtn)
     report('전송됨 · 이미지 생성 대기 중…')
     await sleep(500)
 
@@ -248,6 +249,56 @@
     const res = await fetch(stableUrl, { credentials: 'include' })
     if (!res.ok) throw new Error('이미지 다운로드 실패 ' + res.status)
     return await blobToDataUrl(await res.blob())
+  }
+
+  // 마지막 turn 의 코드블록 내용 (텍스트 잡 결과 회수용). 코드블록이 없으면 응답 본문 폴백.
+  function lastTurnCodeText() {
+    const turns = qsa(SEL.turn); const last = turns[turns.length - 1]; if (!last) return ''
+    const codes = qsa('pre code', last)
+    if (codes.length) return codes[codes.length - 1].innerText || codes[codes.length - 1].textContent || ''
+    const md = qs('.markdown', last)
+    return md ? (md.innerText || md.textContent || '') : ''
+  }
+
+  // 텍스트 잡 실행: 프롬프트 전송 → 응답(스트리밍) 완료 대기 → 코드블록 내용 반환.
+  async function runTextJob(job, report) {
+    report('로그인 확인 중…')
+    if (!(await isLoggedIn())) {
+      send({ type: 'need-login' })
+      throw new Error('ChatGPT 로그인 필요 — 방금 띄운 크롬 탭에서 로그인한 뒤 다시 시도하세요')
+    }
+
+    report('ChatGPT 준비 중…')
+    for (let i = 0; i < 40 && !getPromptInput(); i++) await sleep(300)
+    if (!getPromptInput()) throw new Error('입력창 없음 — ChatGPT 페이지가 준비되지 않았습니다(새로고침 후 재시도)')
+
+    const turnsBefore = qsa(SEL.turn).length
+
+    report('프롬프트 입력 중…')
+    if (!(await typePrompt(job.prompt || '', false))) throw new Error('프롬프트 입력 실패(전송버튼 미활성)')
+
+    let sendBtn = getSendButton(), t = 0
+    while ((!sendBtn || sendBtn.disabled) && t++ < 30) { await sleep(150); sendBtn = getSendButton() }
+    if (!sendBtn || sendBtn.disabled) throw new Error('전송 버튼 비활성')
+    await clickEl(sendBtn)
+    report('전송됨 · 응답 대기 중…')
+    await sleep(500)
+
+    // 응답 turn 이 생기고, 스트리밍이 끝나고, 텍스트가 2회 연속(약 3초) 안 변하면 완료로 본다.
+    let lastLen = -1, stable = 0
+    for (let i = 0; i < 200; i++) {
+      await sleep(1500)
+      if (i % 4 === 0) await throwIfCanceled(job.id)
+      if (isRateLimited()) { const e = new Error('레이트 리밋'); e.rateLimit = true; throw e }
+      if (i > 0 && i % 8 === 0) report('응답 대기 중… (' + Math.round(i * 1.5) + '초)')
+      if (qsa(SEL.turn).length <= turnsBefore) continue // 아직 응답 turn 없음
+      if (isStreaming()) { stable = 0; continue }
+      const txt = lastTurnCodeText()
+      if (!txt) { stable = 0; continue }
+      if (txt.length === lastLen) { stable++; if (stable >= 2) return txt }
+      else { lastLen = txt.length; stable = 0 }
+    }
+    throw new Error('시간 초과 — 텍스트 응답 없음')
   }
 
   // 레이트리밋(계정 사용량 한도) 감지 — 마지막 turn 텍스트에서 한도 안내 문구를 찾는다.
@@ -294,9 +345,16 @@
     busy = true
     const report = (m) => { log(m); send({ type: 'job-status', id: job.id, status: 'progress', message: m }) }
     try {
-      const dataUrl = await runJob(job, report)
-      await send({ type: 'image', source: 'chatgpt', dataUrl, pageUrl: location.href })
-      await send({ type: 'job-status', id: job.id, status: 'done', message: '완료' })
+      if (job.kind === 'text') {
+        // 텍스트 잡: 응답 코드블록 내용을 완료 보고에 실어 보낸다 (앱의 enqueueJob promise 로 전달).
+        const text = await runTextJob(job, report)
+        await send({ type: 'job-status', id: job.id, status: 'done', message: '완료', text })
+      } else {
+        const dataUrl = await runJob(job, report)
+        const ir = await send({ type: 'image', source: 'chatgpt', dataUrl, pageUrl: location.href })
+        // imageId: 이 작업이 만든 이미지의 import id — 앱이 작업↔이미지를 정확히 매칭(카드뉴스 배경 등).
+        await send({ type: 'job-status', id: job.id, status: 'done', message: '완료', imageId: ir && ir.id })
+      }
       log('완료')
     } catch (e) {
       if (e && e.rateLimit) {

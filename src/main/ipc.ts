@@ -1,10 +1,10 @@
 import { app, dialog, ipcMain, shell, BrowserWindow } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
-import os from 'os'
-import { execFile } from 'child_process'
+import { writeZip } from './zip'
 import type {
   ApiKeys,
+  BridgeJobResult,
   ImageSource,
   Project,
   ProjectOptions,
@@ -166,7 +166,10 @@ export function registerIpc(): void {
     const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'] })
     return r.canceled ? null : r.filePaths[0]
   })
-  ipcMain.handle(IPC.openPath, (_e, p: string) => shell.openPath(p).then(() => undefined))
+  // '@downloads' = 시스템 다운로드 폴더 별칭 (카드뉴스 PNG 가 떨어지는 기본 위치)
+  ipcMain.handle(IPC.openPath, (_e, p: string) =>
+    shell.openPath(p === '@downloads' ? app.getPath('downloads') : p).then(() => undefined)
+  )
   ipcMain.handle(IPC.openExternal, (_e, url: string) => shell.openExternal(url))
 
   // URL을 임베드 창으로 연다(이미지 잡기 grabber 주입). 로그인 유지를 위해 persist 파티션.
@@ -219,7 +222,7 @@ export function registerIpc(): void {
       prompt: string,
       referenceImages?: string[],
       aspect?: string
-    ): Promise<{ ok: boolean; message?: string }> => {
+    ): Promise<BridgeJobResult> => {
       if (source !== 'chatgpt' && source !== 'flow') {
         return { ok: false, message: '현재 ChatGPT·Flow 이미지 생성만 지원합니다.' }
       }
@@ -234,6 +237,16 @@ export function registerIpc(): void {
         aspect: aspect || '16:9',
         referenceImages: referenceImages || []
       })
+    }
+  )
+
+  // ChatGPT 텍스트 생성: 프롬프트 전송 → 응답 코드블록 내용 회수 (카드뉴스 자동화용)
+  ipcMain.handle(
+    IPC.bridgeGenerateText,
+    async (_e, prompt: string): Promise<BridgeJobResult> => {
+      if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
+      console.log('[AVS] 텍스트 생성 요청 (chatgpt)')
+      return await enqueueJob({ source: 'chatgpt', kind: 'text', prompt: prompt.trim() })
     }
   )
 
@@ -319,15 +332,16 @@ export function registerIpc(): void {
     }
   )
 
-  // 이미지들을 순서대로 zip 으로 저장 (생성 순서 보존: 01_, 02_ … 접두어)
+  // 이미지들을 순서대로 zip 으로 저장 (생성 순서 보존: 01_, 02_ … 접두어).
+  // path(로컬 파일) 또는 dataUrl(카드뉴스 PNG 등 메모리 생성 이미지) 둘 다 지원.
   ipcMain.handle(
     IPC.bridgeExportZip,
     async (
       e,
-      items: { path: string; name: string }[],
+      items: { path?: string; dataUrl?: string; name: string }[],
       defaultName?: string
     ): Promise<{ ok: boolean; path?: string; message?: string }> => {
-      const list = (items || []).filter((it) => it && it.path)
+      const list = (items || []).filter((it) => it && (it.path || it.dataUrl))
       if (!list.length) return { ok: false, message: '저장할 이미지가 없습니다.' }
       const win = BrowserWindow.fromWebContents(e.sender) || undefined
       const { canceled, filePath } = await dialog.showSaveDialog(win!, {
@@ -336,26 +350,31 @@ export function registerIpc(): void {
       })
       if (canceled || !filePath) return { ok: false }
 
-      const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'avszip-'))
+      const MIME_EXT: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' }
       try {
-        const copied: string[] = []
+        // 메모리에 엔트리를 모아 자체 ZIP 작성기로 저장 (외부 zip CLI 없음 → 윈도우 호환)
+        const entries: { name: string; data: Buffer }[] = []
         for (let i = 0; i < list.length; i++) {
-          const ext = path.extname(list[i].path) || '.png'
-          const base = path.basename(list[i].name || 'image', path.extname(list[i].name || '')) || 'image'
+          const it = list[i]
+          let ext: string
+          let data: Buffer
+          if (it.dataUrl) {
+            const m = /^data:([^;]+);base64,(.*)$/s.exec(it.dataUrl)
+            if (!m) continue
+            ext = MIME_EXT[m[1].toLowerCase()] || '.png'
+            data = Buffer.from(m[2], 'base64')
+          } else {
+            ext = path.extname(it.path!) || '.png'
+            data = await fs.readFile(it.path!)
+          }
+          const base = path.basename(it.name || 'image', path.extname(it.name || '')) || 'image'
           const safe = base.replace(/[^\w.-]/g, '_').slice(0, 40)
-          const name = String(i + 1).padStart(2, '0') + '_' + safe + ext
-          const dest = path.join(tmp, name)
-          await fs.copyFile(list[i].path, dest)
-          copied.push(dest)
+          entries.push({ name: String(i + 1).padStart(2, '0') + '_' + safe + ext, data })
         }
-        await new Promise<void>((res, rej) =>
-          execFile('zip', ['-j', '-q', filePath, ...copied], (err) => (err ? rej(err) : res()))
-        )
+        await writeZip(filePath, entries)
         return { ok: true, path: filePath }
       } catch (err) {
         return { ok: false, message: 'zip 생성 실패: ' + ((err as Error)?.message || err) }
-      } finally {
-        await fs.rm(tmp, { recursive: true, force: true }).catch(() => {})
       }
     }
   )

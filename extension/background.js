@@ -223,7 +223,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await fetch(base + '/job-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: msg.id, status: msg.status, message: msg.message })
+          body: JSON.stringify({ id: msg.id, status: msg.status, message: msg.message, text: msg.text, imageId: msg.imageId })
         })
         sendResponse({ ok: true })
       } catch (e) {

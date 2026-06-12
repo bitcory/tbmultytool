@@ -95,12 +95,21 @@ export interface VideoGenSettings {
 export interface BridgeJob {
   id: string
   source: ImageSource
+  kind?: 'image' | 'text' // 기본 image. text 면 ChatGPT 텍스트 응답(코드블록)을 회수
   prompt: string
   aspect?: string // '16:9' 등
   referenceImages?: string[] // I2I 참조 이미지 dataURL 배열
   imageDataUrl?: string // Grok 이미지→영상: 입력 이미지 dataURL
   videoSettings?: VideoGenSettings // Grok: 길이/해상도/비율
   musicPayload?: MusicGenPayload // Suno: 음악 생성 입력
+}
+
+/** 확장 작업 완료 결과 (job-status done 보고에 실려옴) */
+export interface BridgeJobResult {
+  ok: boolean
+  message?: string
+  text?: string // text 잡: ChatGPT 응답 코드블록 내용
+  imageId?: string // image 잡: import 된 이미지 id (작업↔이미지 매칭용)
 }
 
 /** 로컬 이미지 수신 서버 정보 (확장이 접속할 주소) */
@@ -143,6 +152,7 @@ export const IPC = {
   bridgeRemove: 'bridge:remove',
   bridgeImport: 'bridge:import', // 임베드 창에서 직접 이미지 저장(IPC, CSP 우회)
   bridgeGenerate: 'bridge:generate', // 임베드 창 자동화(프롬프트 입력→생성→회수)
+  bridgeGenerateText: 'bridge:generateText', // ChatGPT 텍스트 생성(코드블록 회수) — 카드뉴스 자동화용
   bridgeGenerateVideo: 'bridge:generateVideo', // Grok 이미지→영상 자동화
   bridgeGenerateMusic: 'bridge:generateMusic', // SUNO 음악 생성 자동화
   bridgeGenerateBatch: 'bridge:generateBatch', // 멀티 프롬프트 배치 이미지 생성(T2I/I2I)
@@ -197,7 +207,9 @@ export interface ElectronAPI {
       prompt: string,
       referenceImages?: string[],
       aspect?: string
-    ) => Promise<{ ok: boolean; message?: string }>
+    ) => Promise<BridgeJobResult>
+    /** ChatGPT 텍스트 생성: 프롬프트 전송 → 응답 코드블록 내용 회수 (카드뉴스 자동화용) */
+    generateText: (prompt: string) => Promise<BridgeJobResult>
     /** Grok 으로 이미지→영상 자동 생성·회수 (실험적). settings: 길이/해상도/비율 */
     generateVideo: (
       prompt: string,
@@ -214,9 +226,9 @@ export interface ElectronAPI {
       items: { prompt: string; images?: string[] }[],
       aspect?: string
     ) => Promise<{ ok: boolean; count?: number; message?: string }>
-    /** 이미지 파일들을 순서대로(01_, 02_ …) zip 으로 저장. 저장 다이얼로그 표시 */
+    /** 이미지들을 순서대로(01_, 02_ …) zip 으로 저장. path(파일) 또는 dataUrl 둘 다 지원. 저장 다이얼로그 표시 */
     exportZip: (
-      items: { path: string; name: string }[],
+      items: { path?: string; dataUrl?: string; name: string }[],
       defaultName?: string
     ) => Promise<{ ok: boolean; path?: string; message?: string }>
     /** 진행/대기 중인 모든 생성 작업 취소(정지 버튼) */

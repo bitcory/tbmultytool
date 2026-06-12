@@ -41,6 +41,7 @@ const api: ElectronAPI = {
     remove: (ids) => ipcRenderer.invoke(IPC.bridgeRemove, ids),
     generate: (source, prompt, referenceImages, aspect) =>
       ipcRenderer.invoke(IPC.bridgeGenerate, source, prompt, referenceImages, aspect),
+    generateText: (prompt) => ipcRenderer.invoke(IPC.bridgeGenerateText, prompt),
     generateVideo: (prompt, imageDataUrl, settings) =>
       ipcRenderer.invoke(IPC.bridgeGenerateVideo, prompt, imageDataUrl, settings),
     generateMusic: (payload) => ipcRenderer.invoke(IPC.bridgeGenerateMusic, payload),
