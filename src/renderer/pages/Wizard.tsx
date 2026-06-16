@@ -33,9 +33,24 @@ export default function Wizard() {
       if (m.type === 'generate') {
         pending.current = { label: m.boardLabel, kind: 'image' }
         const r = await window.electronAPI.bridge.generate(m.imgSource || 'chatgpt', m.prompt, m.referenceImages, m.aspect)
+        pending.current = null
+        // 이미지는 작업이 돌려준 imageId 로 "그 작업이 만든 이미지"를 정확히 요청 보드에 전달한다.
+        // (onImported 의 전역 pending 경로는 Board A·B 동시 생성 시 라벨이 섞여 보드에 안 꽂힌다 —
+        //  갤러리는 별도 리스너라 항상 받지만 보드는 누락된다.)
         if (!r.ok) {
-          pending.current = null
           post({ source: 'avs-app', type: 'error', boardLabel: m.boardLabel, message: r.message })
+        } else if (r.imageId) {
+          try {
+            const list = await window.electronAPI.bridge.list()
+            const hit = list.find((x) => x.id === r.imageId)
+            const dataUrl = hit ? await window.electronAPI.fs.readImage(hit.path) : ''
+            if (dataUrl) post({ source: 'avs-app', type: 'image', boardLabel: m.boardLabel, dataUrl })
+            else post({ source: 'avs-app', type: 'error', boardLabel: m.boardLabel, message: '생성된 이미지를 찾지 못했습니다' })
+          } catch {
+            post({ source: 'avs-app', type: 'error', boardLabel: m.boardLabel, message: '미디어 읽기 실패' })
+          }
+        } else {
+          post({ source: 'avs-app', type: 'error', boardLabel: m.boardLabel, message: '이미지 생성 결과가 없습니다' })
         }
       } else if (m.type === 'generate-video') {
         pending.current = { label: m.boardLabel, kind: 'video' }
@@ -82,19 +97,19 @@ export default function Wizard() {
         musicTracks.current.push({ id: img.id, url: `http://127.0.0.1:${portRef.current}/media/${name}`, filename: img.filename })
         return
       }
+      // 이미지는 generate 응답(imageId)으로 직접 전달하므로 여기선 영상만 처리한다.
       const p = pending.current
-      if (!p) return
+      if (!p || p.kind !== 'video') return
       pending.current = null
-      try {
-        const dataUrl = await window.electronAPI.fs.readImage(img.path)
-        post({ source: 'avs-app', type: p.kind === 'video' ? 'video' : 'image', boardLabel: p.label, dataUrl })
-      } catch {
-        post({
-          source: 'avs-app',
-          type: p.kind === 'video' ? 'video-error' : 'error',
-          boardLabel: p.label,
-          message: '미디어 읽기 실패'
-        })
+      // 영상은 base64 dataURL(수 MB) 대신 미디어 서버 URL로 전달한다.
+      // 보드가 이 작은 URL만 IndexedDB에 저장하므로, 큰 dataURL 저장 실패/중단 없이
+      // 페이지(사이드바)를 이동했다 돌아와도 영상이 그대로 복원된다.
+      // (음악 트랙과 동일한 /media 경로 — Range 스트리밍으로 seek 도 지원)
+      const name = img.path.split(/[\\/]/).pop() || ''
+      if (name) {
+        post({ source: 'avs-app', type: 'video', boardLabel: p.label, dataUrl: `http://127.0.0.1:${portRef.current}/media/${encodeURIComponent(name)}` })
+      } else {
+        post({ source: 'avs-app', type: 'video-error', boardLabel: p.label, message: '미디어 경로 확인 실패' })
       }
     })
 

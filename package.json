@@ -1,6 +1,6 @@
 {
   "name": "ai-video-studio",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "AI 영상 제작을 쉽고 빠르게 TB M TOOL",
   "main": "out/main/index.js",
   "author": "toolb",
@@ -12,6 +12,7 @@
     "directories": {
       "output": "dist"
     },
+    "afterPack": "scripts/afterPack.js",
     "extraResources": [
       {
         "from": "build/icon.png",
@@ -46,7 +47,8 @@
     },
     "mac": {
       "target": "dmg",
-      "artifactName": "${productName}-${version}.${ext}"
+      "artifactName": "${productName}-${version}.${ext}",
+      "identity": null
     }
   },
   "scripts": {
@@ -62,6 +64,7 @@
     "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
+    "lottie-web": "^5.13.0",
     "lucide-react": "^1.17.0"
   },
   "devDependencies": {

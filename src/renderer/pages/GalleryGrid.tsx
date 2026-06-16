@@ -8,6 +8,7 @@ const SOURCE_BADGE: Record<ImageSource, string> = {
   flow: 'Flow',
   grok: 'Grok',
   suno: 'SUNO',
+  scroll: '스크롤',
   other: '기타'
 }
 const isVideoPath = (p: string) => /\.(mp4|webm|mov)$/i.test(p)

@@ -54,8 +54,51 @@ export interface Project {
   createdAt: string
 }
 
-/** 확장으로부터 가져온 이미지/영상의 출처 */
-export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'other'
+/** 확장으로부터 가져온 이미지/영상의 출처 ('scroll' = 앱 내부 스크롤영상 생성기) */
+export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'other'
+
+/** 사각 영역(픽셀) — 스크롤영상 레이아웃 박스 */
+export interface ScrollRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * 스크롤영상 렌더 사양 — 렌더러(Canvas)가 한글 텍스트/장식 PNG와 레이아웃을 모두 계산해
+ * 메인(ffmpeg)으로 넘긴다. 메인은 이 사양만으로 합성·인코딩한다.
+ */
+export interface ScrollMediaLayer {
+  path?: string // 로컬 파일 경로(영상 권장) — dataUrl 과 둘 중 하나
+  dataUrl?: string
+  isVideo: boolean
+  box: ScrollRect // 외곽 박스(이 위치에 올리고, 둥근 마스크/테두리도 이 크기)
+  padX: number // 박스 안쪽 좌우 여백
+  padY: number // 박스 안쪽 상하 여백
+  fit: 'contain' | 'cover' // contain=원본비율 유지(여백), cover=꽉채움(잘림)
+  zoom?: number // 확대 배율(>1 이면 더 키워서 가장자리 크롭 — 영상에 박힌 레터박스 제거용). 기본 1
+  mask?: string // 둥근 모서리 알파 마스크 dataURL (흰=보임/검=투명, box 크기)
+}
+
+export interface ScrollRenderSpec {
+  width: number
+  height: number
+  fps: number
+  bg: string // 배경색 hex (예 '#0a0a0c')
+  speed: number // 스크롤 속도 px/s (사용자 입력 기준; 영상 모드면 메인이 길이에 맞춰 재계산)
+  travel: number // 텍스트 총 이동 거리 = 섹션안쪽높이 + 텍스트높이
+  mute: boolean // 영상 오디오 음소거 여부
+  mediaLayers: ScrollMediaLayer[] // 영상/이미지 레이어들(아래에서 위 순서). 비어있으면 텍스트 전용
+  section: ScrollRect // 텍스트가 흐르는 섹션 안쪽 영역
+  titleY?: number // 제목 PNG 를 올릴 y (가로는 가운데 정렬)
+  png: {
+    text: string // 스크롤 텍스트 블록 (dataURL)
+    fade: string // 섹션 위/아래 페이드 마스크 (dataURL)
+    frame: string // 둥근 테두리 (dataURL, 전체 캔버스 크기)
+    title?: string // 제목 (dataURL)
+  }
+}
 
 /** SUNO 음악 생성 요청 */
 export type SunoMode = 'simple' | 'advanced'
@@ -146,6 +189,7 @@ export const IPC = {
   openWindow: 'fs:openWindow',
   pickImage: 'fs:pickImage',
   readImage: 'fs:readImage',
+  saveFileAs: 'fs:saveFileAs', // 로컬 파일을 사용자가 고른 위치로 저장(다른 이름으로 저장)
   bridgeInfo: 'bridge:info',
   bridgeList: 'bridge:list',
   bridgeClear: 'bridge:clear',
@@ -154,6 +198,7 @@ export const IPC = {
   bridgeGenerate: 'bridge:generate', // 임베드 창 자동화(프롬프트 입력→생성→회수)
   bridgeGenerateText: 'bridge:generateText', // ChatGPT 텍스트 생성(코드블록 회수) — 카드뉴스 자동화용
   bridgeGenerateVideo: 'bridge:generateVideo', // Grok 이미지→영상 자동화
+  bridgeGenerateScroll: 'bridge:generateScroll', // 앱 내부 스크롤영상 생성(ffmpeg, 확장 불필요)
   bridgeGenerateMusic: 'bridge:generateMusic', // SUNO 음악 생성 자동화
   bridgeGenerateBatch: 'bridge:generateBatch', // 멀티 프롬프트 배치 이미지 생성(T2I/I2I)
   bridgeCancel: 'bridge:cancel', // 진행/대기 중인 확장 생성 작업 전체 취소
@@ -190,6 +235,10 @@ export interface ElectronAPI {
     pickImage: () => Promise<string | null>
     /** 로컬 이미지 파일을 data URL로 읽어 미리보기 */
     readImage: (path: string) => Promise<string>
+    /** 드래그/선택한 File 의 실제 파일 경로 (Electron webUtils). 큰 영상을 base64 없이 경로로 다루기 위함 */
+    getPathForFile: (file: File) => string
+    /** 로컬 파일을 사용자가 고른 위치로 저장(저장 다이얼로그). 취소 시 ok:false */
+    saveFileAs: (srcPath: string, defaultName: string) => Promise<{ ok: boolean; path?: string }>
   }
   /** 크롬 확장 ↔ 앱 이미지 브릿지 */
   bridge: {
@@ -216,6 +265,10 @@ export interface ElectronAPI {
       imageDataUrl: string,
       settings?: VideoGenSettings
     ) => Promise<{ ok: boolean; message?: string }>
+    /** 스크롤영상 생성: 렌더러 Canvas 사양 → ffmpeg 합성. 결과는 onImported(영상)로 갤러리에 도착 */
+    generateScroll: (
+      spec: ScrollRenderSpec
+    ) => Promise<{ ok: boolean; message?: string; imageId?: string }>
     /** SUNO 로 음악 자동 생성·회수 (2곡). tracks: 재생용 미디어 URL 목록 */
     generateMusic: (
       payload: MusicGenPayload

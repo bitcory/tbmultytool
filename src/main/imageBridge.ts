@@ -263,7 +263,9 @@ async function persistIndex(): Promise<void> {
 }
 
 function normalizeSource(s: unknown): ImageSource {
-  return s === 'chatgpt' || s === 'flow' || s === 'grok' || s === 'suno' ? s : 'other'
+  return s === 'chatgpt' || s === 'flow' || s === 'grok' || s === 'suno' || s === 'scroll'
+    ? s
+    : 'other'
 }
 
 /** 임베드 창 세션 쿠키를 사용해 이미지 URL을 다운로드 (ChatGPT/Flow 인증 이미지용) */
@@ -333,6 +335,29 @@ async function saveImage(payload: {
   }
   items.unshift(img)
   await persistIndex()
+  return img
+}
+
+/** 로컬에서 만든 미디어 파일(예: 스크롤영상)을 브릿지 폴더로 복사해 등록 + 렌더러 알림. */
+export async function importLocalFile(
+  srcPath: string,
+  source: ImageSource,
+  filename?: string
+): Promise<ImportedImage> {
+  const ext = (path.extname(srcPath).slice(1).toLowerCase() || 'mp4')
+  const id = crypto.randomUUID()
+  const dest = path.join(dir, `${id}.${ext}`)
+  await fs.copyFile(srcPath, dest)
+  const img: ImportedImage = {
+    id,
+    source: normalizeSource(source),
+    filename: filename || path.basename(srcPath),
+    path: dest,
+    importedAt: new Date().toISOString()
+  }
+  items.unshift(img)
+  await persistIndex()
+  notify(img)
   return img
 }
 

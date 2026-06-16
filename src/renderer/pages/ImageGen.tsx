@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageSquare, Clapperboard, Sparkles, ImageIcon, Loader2, Type, Images as ImagesIcon, X, RotateCw, Download, Check, CheckSquare, Trash2, Square } from 'lucide-react'
 import type { ImageSource, ImportedImage } from '@shared/types'
+import { usePersistedForm, isToday } from '../persist'
 
 const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '3:4']
 const isImagePath = (p: string) => !/\.(mp4|webm|mov|mp3|wav)$/i.test(p)
@@ -83,36 +84,46 @@ export default function ImageGen() {
   const [selIds, setSelIds] = useState<Set<string>>(new Set())
   const pendingCount = useRef(0)
 
+  // 입력 폼 영구 저장 (프롬프트·설정·첨부 참조이미지) — 페이지 이동 후에도 유지
+  usePersistedForm(
+    'imagegen',
+    { source, genMode, prompt, aspect, refs, refMode, selections },
+    (v) => {
+      if (v.source) setSource(v.source as ImageSource)
+      if (v.genMode) setGenMode(v.genMode as GenMode)
+      if (typeof v.prompt === 'string') setPrompt(v.prompt)
+      if (typeof v.aspect === 'string') setAspect(v.aspect)
+      if (Array.isArray(v.refs)) setRefs(v.refs as string[])
+      if (v.refMode) setRefMode(v.refMode as 'single' | 'all' | 'select')
+      if (Array.isArray(v.selections)) setSelections(v.selections as number[][])
+    }
+  )
+
   const prompts = splitPrompts(prompt)
 
-  const savedIds = (): string[] => {
-    try {
-      return JSON.parse(localStorage.getItem('igen-ids') || '[]')
-    } catch {
-      return []
-    }
-  }
-
+  // 갤러리(디스크)를 신뢰 소스로 "오늘 생성한 이미지"만 표시한다.
+  // 지난 날짜분은 갤러리엔 남고 이 화면에선 빠진다(여긴 새로 만드는 곳).
   useEffect(() => {
-    const ids = new Set(savedIds())
-    if (ids.size === 0) return
     window.electronAPI.bridge.list().then((all) => {
-      setImages(all.filter((i) => ids.has(i.id) && isImagePath(i.path)))
+      setImages(all.filter((i) => isImagePath(i.path) && isToday(i.importedAt)))
     })
   }, [])
 
   useEffect(() => {
     const off = window.electronAPI.bridge.onImported((img) => {
-      if (pendingCount.current <= 0 || !isImagePath(img.path)) return
+      // 오늘 도착한 이미지면 화면에 추가 — 생성 중 카운트와 무관하게 받아 누락을 막는다.
+      // (이전엔 pendingCount>0 일 때만 받아, 생성 도중 다른 메뉴에 갔다 오면 이미지를 놓쳤다.)
+      if (!isImagePath(img.path) || !isToday(img.importedAt)) return
       setImages((prev) => [img, ...prev.filter((p) => p.id !== img.id)])
-      localStorage.setItem('igen-ids', JSON.stringify([img.id, ...savedIds()].slice(0, 300)))
-      pendingCount.current = Math.max(0, pendingCount.current - 1)
-      setLoadingN(pendingCount.current)
-      if (pendingCount.current <= 0) {
-        setGenerating(false)
-        setMsg('완료')
-      } else {
-        setMsg(`이미지 받는 중… (남은 ${pendingCount.current})`)
+      if (pendingCount.current > 0) {
+        pendingCount.current = Math.max(0, pendingCount.current - 1)
+        setLoadingN(pendingCount.current)
+        if (pendingCount.current <= 0) {
+          setGenerating(false)
+          setMsg('완료')
+        } else {
+          setMsg(`이미지 받는 중… (남은 ${pendingCount.current})`)
+        }
       }
     })
     const offP = window.electronAPI.bridge.onProgress((m) => {
@@ -155,7 +166,6 @@ export default function ImageGen() {
     if (!confirm(`선택한 ${ids.length}장을 삭제할까요?`)) return
     await window.electronAPI.bridge.remove(ids)
     setImages((prev) => prev.filter((i) => !selIds.has(i.id)))
-    localStorage.setItem('igen-ids', JSON.stringify(savedIds().filter((id) => !selIds.has(id))))
     setSelIds(new Set())
     setSelMode(false)
   }

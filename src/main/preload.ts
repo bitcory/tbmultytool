@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   ApiKeys,
   ElectronAPI,
@@ -32,7 +32,10 @@ const api: ElectronAPI = {
     openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
     openWindow: (url: string, title?: string) => ipcRenderer.invoke(IPC.openWindow, url, title),
     pickImage: () => ipcRenderer.invoke(IPC.pickImage),
-    readImage: (p: string) => ipcRenderer.invoke(IPC.readImage, p)
+    readImage: (p: string) => ipcRenderer.invoke(IPC.readImage, p),
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
+    saveFileAs: (srcPath: string, defaultName: string) =>
+      ipcRenderer.invoke(IPC.saveFileAs, srcPath, defaultName)
   },
   bridge: {
     getInfo: () => ipcRenderer.invoke(IPC.bridgeInfo),
@@ -44,6 +47,7 @@ const api: ElectronAPI = {
     generateText: (prompt) => ipcRenderer.invoke(IPC.bridgeGenerateText, prompt),
     generateVideo: (prompt, imageDataUrl, settings) =>
       ipcRenderer.invoke(IPC.bridgeGenerateVideo, prompt, imageDataUrl, settings),
+    generateScroll: (spec) => ipcRenderer.invoke(IPC.bridgeGenerateScroll, spec),
     generateMusic: (payload) => ipcRenderer.invoke(IPC.bridgeGenerateMusic, payload),
     generateBatch: (source, items, aspect) =>
       ipcRenderer.invoke(IPC.bridgeGenerateBatch, source, items, aspect),

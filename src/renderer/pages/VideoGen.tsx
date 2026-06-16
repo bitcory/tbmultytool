@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Film, Sparkles, Loader2, X, Square, Trash2, CheckSquare, Download } from 'lucide-react'
 import type { ImportedImage } from '@shared/types'
+import { usePersistedForm, isToday } from '../persist'
 
 const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '3:4']
 const DURATIONS = [
@@ -87,38 +88,44 @@ export default function VideoGen() {
   const [port, setPort] = useState(0)
   const pendingCount = useRef(0)
 
+  // 입력 폼 영구 저장 (입력 이미지·프롬프트·설정) — 페이지 이동 후에도 유지
+  usePersistedForm(
+    'videogen',
+    { image, prompt, aspect, duration, resolution },
+    (v) => {
+      if (typeof v.image === 'string') setImage(v.image)
+      if (typeof v.prompt === 'string') setPrompt(v.prompt)
+      if (typeof v.aspect === 'string') setAspect(v.aspect)
+      if (typeof v.duration === 'string') setDuration(v.duration)
+      if (typeof v.resolution === 'string') setResolution(v.resolution)
+    }
+  )
+
   useEffect(() => {
     window.electronAPI.bridge.getInfo().then((i) => setPort(i.port)).catch(() => {})
   }, [])
 
-  const savedIds = (): string[] => {
-    try {
-      return JSON.parse(localStorage.getItem('vgen-ids') || '[]')
-    } catch {
-      return []
-    }
-  }
-
+  // 갤러리(디스크)를 신뢰 소스로 "오늘 생성한 Grok 영상"만 표시 (스크롤영상과 분리: source='grok').
   useEffect(() => {
-    const ids = new Set(savedIds())
-    if (ids.size === 0) return
     window.electronAPI.bridge.list().then((all) => {
-      setVideos(all.filter((i) => ids.has(i.id) && isVideoPath(i.path)))
+      setVideos(all.filter((i) => i.source === 'grok' && isVideoPath(i.path) && isToday(i.importedAt)))
     })
   }, [])
 
   useEffect(() => {
     const off = window.electronAPI.bridge.onImported((img) => {
-      if (pendingCount.current <= 0 || !isVideoPath(img.path)) return
+      // 오늘 도착한 Grok 영상이면 화면에 추가 — 생성 중 카운트와 무관하게 받아 누락을 막는다.
+      if (img.source !== 'grok' || !isVideoPath(img.path) || !isToday(img.importedAt)) return
       setVideos((prev) => [img, ...prev.filter((p) => p.id !== img.id)])
-      localStorage.setItem('vgen-ids', JSON.stringify([img.id, ...savedIds()].slice(0, 300)))
-      pendingCount.current = Math.max(0, pendingCount.current - 1)
-      setLoadingN(pendingCount.current)
-      if (pendingCount.current <= 0) {
-        setGenerating(false)
-        setMsg('완료')
-      } else {
-        setMsg(`영상 받는 중… (남은 ${pendingCount.current})`)
+      if (pendingCount.current > 0) {
+        pendingCount.current = Math.max(0, pendingCount.current - 1)
+        setLoadingN(pendingCount.current)
+        if (pendingCount.current <= 0) {
+          setGenerating(false)
+          setMsg('완료')
+        } else {
+          setMsg(`영상 받는 중… (남은 ${pendingCount.current})`)
+        }
       }
     })
     const offP = window.electronAPI.bridge.onProgress((m) => {
@@ -185,7 +192,6 @@ export default function VideoGen() {
     if (!confirm(`선택한 ${ids.length}개 영상을 삭제할까요?`)) return
     await window.electronAPI.bridge.remove(ids)
     setVideos((prev) => prev.filter((i) => !selIds.has(i.id)))
-    localStorage.setItem('vgen-ids', JSON.stringify(savedIds().filter((id) => !selIds.has(id))))
     setSelIds(new Set())
     setSelMode(false)
   }

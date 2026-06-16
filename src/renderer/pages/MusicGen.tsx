@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Music, Sparkles, Loader2, Square, Trash2 } from 'lucide-react'
 import type { ImportedImage, SunoMode } from '@shared/types'
+import { usePersistedForm, isToday } from '../persist'
 
 const isAudioPath = (p: string) => /\.(mp3|wav)$/i.test(p)
 
@@ -30,35 +31,41 @@ export default function MusicGen() {
   const [port, setPort] = useState(0)
   const pendingCount = useRef(0)
 
-  const savedIds = (): string[] => {
-    try {
-      return JSON.parse(localStorage.getItem('mgen-ids') || '[]')
-    } catch {
-      return []
+  // 입력 폼 영구 저장 (모드·설명·가사·스타일 등) — 페이지 이동 후에도 유지
+  usePersistedForm(
+    'musicgen',
+    { mode, description, instrumental, style, lyrics, title },
+    (v) => {
+      if (v.mode) setMode(v.mode as SunoMode)
+      if (typeof v.description === 'string') setDescription(v.description)
+      if (typeof v.instrumental === 'boolean') setInstrumental(v.instrumental)
+      if (typeof v.style === 'string') setStyle(v.style)
+      if (typeof v.lyrics === 'string') setLyrics(v.lyrics)
+      if (typeof v.title === 'string') setTitle(v.title)
     }
-  }
+  )
 
+  // 갤러리(디스크)를 신뢰 소스로 "오늘 생성한 음악"만 표시.
   useEffect(() => {
     window.electronAPI.bridge.getInfo().then((i) => setPort(i.port)).catch(() => {})
-    const ids = new Set(savedIds())
-    if (ids.size > 0) {
-      window.electronAPI.bridge.list().then((all) => {
-        setTracks(all.filter((i) => ids.has(i.id) && isAudioPath(i.path)))
-      })
-    }
+    window.electronAPI.bridge.list().then((all) => {
+      setTracks(all.filter((i) => isAudioPath(i.path) && isToday(i.importedAt)))
+    })
   }, [])
 
   useEffect(() => {
     const off = window.electronAPI.bridge.onImported((img) => {
-      if (pendingCount.current <= 0 || !isAudioPath(img.path)) return
+      // 오늘 도착한 음악이면 화면에 추가 — 생성 중 카운트와 무관하게 받아 누락을 막는다.
+      if (!isAudioPath(img.path) || !isToday(img.importedAt)) return
       setTracks((prev) => [img, ...prev.filter((p) => p.id !== img.id)])
-      localStorage.setItem('mgen-ids', JSON.stringify([img.id, ...savedIds()].slice(0, 300)))
-      pendingCount.current = Math.max(0, pendingCount.current - 1)
-      if (pendingCount.current <= 0) {
-        setGenerating(false)
-        setMsg('완료')
-      } else {
-        setMsg(`음악 받는 중… (남은 ${pendingCount.current})`)
+      if (pendingCount.current > 0) {
+        pendingCount.current = Math.max(0, pendingCount.current - 1)
+        if (pendingCount.current <= 0) {
+          setGenerating(false)
+          setMsg('완료')
+        } else {
+          setMsg(`음악 받는 중… (남은 ${pendingCount.current})`)
+        }
       }
     })
     const offP = window.electronAPI.bridge.onProgress((m) => {
@@ -107,7 +114,6 @@ export default function MusicGen() {
   const deleteTrack = async (id: string) => {
     await window.electronAPI.bridge.remove([id])
     setTracks((prev) => prev.filter((t) => t.id !== id))
-    localStorage.setItem('mgen-ids', JSON.stringify(savedIds().filter((x) => x !== id)))
   }
 
   return (

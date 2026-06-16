@@ -40,3 +40,19 @@ export async function getDuration(file: string): Promise<number> {
   if (!isFinite(sec)) throw new Error(`길이를 읽을 수 없습니다: ${file}`)
   return sec
 }
+
+/** 파일에 오디오 스트림이 있는지 */
+export async function hasAudioStream(file: string): Promise<boolean> {
+  try {
+    const out = await run(FFPROBE, [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=index',
+      '-of', 'csv=p=0',
+      file
+    ])
+    return out.trim() !== ''
+  } catch {
+    return false
+  }
+}

@@ -8,6 +8,19 @@
 @font-face { font-family: 'Paperlogy'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/Paperlogy-7Bold.ttf') format('truetype'); }
 @font-face { font-family: 'Paperlogy'; font-weight: 800; font-style: normal; font-display: swap; src: url('/fonts/Paperlogy-8ExtraBold.ttf') format('truetype'); }
 @font-face { font-family: 'Paperlogy'; font-weight: 900; font-style: normal; font-display: swap; src: url('/fonts/Paperlogy-9Black.ttf') format('truetype'); }
+/* 스크롤영상 제목용 추가 폰트 (카드뉴스와 동일 목록) */
+@font-face { font-family: 'Pretendard'; font-display: swap; src: url('/fonts/Pretendard-Regular.otf'); }
+@font-face { font-family: 'BlackHanSans'; font-display: swap; src: url('/fonts/BlackHanSans-Regular.ttf'); }
+@font-face { font-family: 'Cafe24Ssurround'; font-display: swap; src: url('/fonts/Cafe24Ssurround-v2.0.ttf'); }
+@font-face { font-family: 'GodoB'; font-display: swap; src: url('/fonts/GodoB.ttf'); }
+@font-face { font-family: 'GowunDodum'; font-display: swap; src: url('/fonts/GowunDodum-Regular.ttf'); }
+@font-face { font-family: 'Recipekorea'; font-display: swap; src: url('/fonts/Recipekorea.ttf'); }
+@font-face { font-family: 'RiaSansEB'; font-display: swap; src: url('/fonts/RiaSans-ExtraBold.ttf'); }
+@font-face { font-family: 'AritaBuriBold'; font-display: swap; src: url('/fonts/AritaBuriKR-Bold.ttf'); }
+@font-face { font-family: 'Freesentation'; font-display: swap; src: url('/fonts/FreesentationVF.ttf'); }
+@font-face { font-family: 'MBC1961Gulim'; font-display: swap; src: url('/fonts/MBC1961Gulim.otf'); }
+@font-face { font-family: 'Swagger'; font-display: swap; src: url('/fonts/Swagger.ttf'); }
+@font-face { font-family: 'Palladium'; font-display: swap; src: url('/fonts/Palladium.ttf'); }
 
 :root {
   --bg: #0f1115;
@@ -20,6 +33,7 @@
   --primary-press: #3b73d8;
   --green: #3ecf8e;
   --red: #ff5d6c;
+  --card: #20242d;
 }
 
 * { box-sizing: border-box; }
@@ -227,6 +241,25 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-
 /* 음악 만들기 페이지 — 생성된 곡 리스트 */
 .mgen-list { display: flex; flex-direction: column; gap: 10px; }
 .mgen-track { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+
+/* ── 모션그래픽 생성기 ── */
+.mgen-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 28px; overflow: hidden; }
+.mgen-stage.checker {
+  background-color: #15181f;
+  background-image:
+    linear-gradient(45deg, #1c2029 25%, transparent 25%),
+    linear-gradient(-45deg, #1c2029 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1c2029 75%),
+    linear-gradient(-45deg, transparent 75%, #1c2029 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+}
+.mgen-canvas { width: 100%; max-width: 100%; max-height: 100%; }
+.mgen-canvas svg { display: block; width: 100%; height: 100%; }
+.mgen-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.mgen-range { width: 100%; accent-color: var(--primary); cursor: pointer; }
+.mgen-check { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; }
+.mgen-check input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
 
 .gtile-selected { outline: 3px solid var(--primary); outline-offset: -3px; }
 .gtile-check {

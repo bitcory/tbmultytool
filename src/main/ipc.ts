@@ -11,7 +11,8 @@ import type {
   Scene,
   VideoGenSettings,
   MusicGenPayload,
-  MusicTrack
+  MusicTrack,
+  ScrollRenderSpec
 } from '@shared/types'
 import { IPC } from '@shared/types'
 import { keysStatus, loadKeys, saveKeys } from './secrets'
@@ -25,6 +26,7 @@ import {
   clearImported,
   removeImported,
   importImage,
+  importLocalFile,
   setDebugEval,
   enqueueJob,
   setJobStatusListener,
@@ -34,6 +36,7 @@ import {
 import { grabberScript } from './injectGrabber'
 import { deployExtension } from './extensionDeploy'
 import { grokVideoScript } from './automateGrok'
+import { renderScrollVideo } from './services/scrollVideo'
 
 // 소스별 임베드 창 추적 (자동화 명령을 보낼 대상)
 const embedded = new Map<ImageSource, BrowserWindow>()
@@ -187,6 +190,21 @@ export function registerIpc(): void {
     return r.canceled ? null : r.filePaths[0]
   })
 
+  // 로컬 파일을 사용자가 고른 위치로 저장 (스크롤영상 등 내보내기)
+  ipcMain.handle(
+    IPC.saveFileAs,
+    async (e, srcPath: string, defaultName: string): Promise<{ ok: boolean; path?: string }> => {
+      const win = BrowserWindow.fromWebContents(e.sender) || undefined
+      const ext = path.extname(srcPath) || '.mp4'
+      const { canceled, filePath } = await dialog.showSaveDialog(win!, {
+        defaultPath: defaultName.endsWith(ext) ? defaultName : defaultName + ext
+      })
+      if (canceled || !filePath) return { ok: false }
+      await fs.copyFile(srcPath, filePath)
+      return { ok: true, path: filePath }
+    }
+  )
+
   // 로컬 미디어(이미지/영상) → data URL (렌더러 미리보기용)
   ipcMain.handle(IPC.readImage, async (_e, p: string) => {
     const buf = await fs.readFile(p)
@@ -200,9 +218,10 @@ export function registerIpc(): void {
   // 확장 작업(job) 진행 메시지를 렌더러로 전달
   setJobStatusListener(emitProgress)
   // 작업이 들어왔는데 해당 사이트 탭이 없으면 진짜 크롬에서 사이트를 연다(확장이 거기서 처리).
+  // activate:false → 브라우저를 앞으로 끌어오지 않고 뒤에서 열어 앱 포커스를 유지(macOS).
   setSiteOpener((source) => {
     const url = (SOURCE_URL as Record<string, string>)[source]
-    if (url) shell.openExternal(url)
+    if (url) shell.openExternal(url, { activate: false })
   })
   ipcMain.handle(IPC.bridgeInfo, () => getBridgeInfo())
   ipcMain.handle(IPC.bridgeList, () => listImported())
@@ -287,6 +306,28 @@ export function registerIpc(): void {
           console.error('[AVS] Grok 자동화 주입 오류:', e)
         })
       return { ok: true }
+    }
+  )
+
+  // 스크롤영상 생성 (앱 내부 ffmpeg, 확장 불필요). 렌더러 Canvas 사양 → 합성 → 갤러리로 import.
+  ipcMain.handle(
+    IPC.bridgeGenerateScroll,
+    async (
+      _e,
+      spec: ScrollRenderSpec
+    ): Promise<{ ok: boolean; message?: string; imageId?: string }> => {
+      try {
+        const out = await renderScrollVideo(spec, emitProgress)
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '')
+        const img = await importLocalFile(out, 'scroll', `scroll-${stamp}.mp4`)
+        await fs.rm(out, { force: true }).catch(() => {}) // 브릿지가 복사했으니 임시 출력 삭제
+        emitProgress('스크롤영상 완료')
+        return { ok: true, imageId: img.id }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[AVS] 스크롤영상 생성 실패:', message)
+        return { ok: false, message: '스크롤영상 생성 실패: ' + message }
+      }
     }
   )
 
