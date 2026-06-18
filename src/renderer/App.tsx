@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Home as HomeIcon, Clapperboard, Film, Video, Music, Wand2, LayoutGrid, GalleryHorizontalEnd, ScrollText, Settings as SettingsIcon, PenLine, Scissors } from 'lucide-react'
+import { Home as HomeIcon, Clapperboard, Film, Video, Music, Wand2, LayoutGrid, GalleryHorizontalEnd, ScrollText, Settings as SettingsIcon, PenLine, Scissors, ImageIcon } from 'lucide-react'
 import { useStore } from './store'
 import Home from './pages/Home'
 import Wizard from './pages/Wizard'
@@ -8,6 +8,7 @@ import Gallery from './pages/Gallery'
 import GalleryGrid from './pages/GalleryGrid'
 import ImageGen from './pages/ImageGen'
 import VideoGen from './pages/VideoGen'
+import ImageEditor from './pages/ImageEditor'
 import ScrollVideo from './pages/ScrollVideo'
 import Frames from './pages/Frames'
 import MusicGen from './pages/MusicGen'
@@ -17,6 +18,7 @@ const NAV = [
   { id: 'home', label: '홈', Icon: HomeIcon },
   { id: 'imagegen', label: '이미지 생성기', Icon: Wand2 },
   { id: 'videogen', label: '비디오 생성기', Icon: Video },
+  { id: 'imageedit', label: '이미지 편집기', Icon: ImageIcon },
   { id: 'scrollvideo', label: '스크롤영상 만들기', Icon: ScrollText },
   { id: 'frames', label: '프레임 추출기', Icon: Scissors },
   { id: 'musicgen', label: '음악 만들기', Icon: Music },
@@ -65,6 +67,8 @@ export default function App() {
           <ImageGen />
         ) : view === 'videogen' ? (
           <VideoGen />
+        ) : view === 'imageedit' ? (
+          <ImageEditor />
         ) : view === 'scrollvideo' ? (
           <ScrollVideo />
         ) : view === 'frames' ? (

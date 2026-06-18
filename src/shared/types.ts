@@ -272,6 +272,14 @@ export interface ElectronAPI {
     getInfo: () => Promise<BridgeInfo>
     /** 지금까지 가져온 이미지 목록 */
     list: () => Promise<ImportedImage[]>
+    /** dataUrl 이미지를 갤러리에 저장(편집기 결과 저장 등). 저장된 항목 반환 */
+    importImage: (payload: {
+      source?: string
+      dataUrl?: string
+      url?: string
+      filename?: string
+      pageUrl?: string
+    }) => Promise<ImportedImage>
     /** 가져온 이미지 전체 삭제 */
     clear: () => Promise<void>
     /** 선택한 항목들 삭제 */

@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>이미지 편집기</title>
+<style>
+  :root{
+    --bg:#0e1015; --panel:#15171f; --panel2:#1d2029; --line:#2a2e3a;
+    --ink:#f4f5f7; --muted:#8c93a6; --accent:#3d5afe;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:'Pretendard',system-ui,sans-serif;background:var(--bg);color:var(--ink);
+    display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  button{font-family:inherit;cursor:pointer}
+  .lab{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--ink);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700}
+  .btn:hover{border-color:#545b6b}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn:disabled{opacity:.45;cursor:default}
+  select,input[type=text],textarea{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);padding:8px 9px;font-family:inherit;font-size:13px;width:100%}
+  textarea{resize:vertical;min-height:60px;line-height:1.4}
+  input[type=range]{accent-color:var(--accent);width:100%}
+  input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);padding:2px;cursor:pointer;flex-shrink:0}
+  .num{font-size:12px;color:var(--muted);min-width:42px;text-align:right}
+  .sw{width:24px;height:24px;border-radius:6px;border:2px solid #545b6b;cursor:pointer;padding:0;flex-shrink:0}
+
+  /* 상단 바: 이미지 / 지우개 / 저장 */
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 14px;
+    background:var(--panel);border-bottom:1px solid var(--line);flex-shrink:0}
+  .grp{display:flex;align-items:center;gap:7px}
+  .grp + .grp{padding-left:14px;border-left:1px solid var(--line)}
+
+  /* 본문: 캔버스 + 오른쪽 패널 */
+  .body{flex:1;min-height:0;display:flex}
+  .stage{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:auto;padding:18px;
+    background:
+      linear-gradient(45deg,#15171f 25%,transparent 25%),linear-gradient(-45deg,#15171f 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#15171f 75%),linear-gradient(-45deg,transparent 75%,#15171f 75%);
+    background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0;background-color:#0e1015}
+  .wrap{position:relative;box-shadow:0 8px 40px rgba(0,0,0,.5);background:#0008;flex-shrink:0}
+  #base{display:block}
+  .wrap.erase{cursor:crosshair}
+  .empty{color:var(--muted);font-size:14px;text-align:center;line-height:1.7}
+
+  /* 오른쪽 텍스트 패널 */
+  .side{width:330px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel);
+    overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+  .sec{display:flex;flex-direction:column;gap:9px}
+  .sec h3{margin:0;font-size:12px;font-weight:800;letter-spacing:.05em;color:var(--ink);
+    display:flex;align-items:center;gap:7px}
+  .row{display:flex;align-items:center;gap:8px}
+  .row2{display:flex;gap:8px}
+  .row2>*{flex:1;min-width:0}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field>span{font-size:11px;color:var(--muted);font-weight:700}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{flex:1;background:var(--panel2);border:none;color:var(--muted);padding:7px 0;font-size:13px;font-weight:700}
+  .seg button.on{background:var(--accent);color:#fff}
+  .muted{color:var(--muted);font-size:12px}
+  .layers{display:flex;flex-direction:column;gap:5px}
+  .layer{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:7px 9px;font-size:12.5px;cursor:pointer}
+  .layer.sel{border-color:var(--accent)}
+  .layer .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .layer .del{background:none;border:none;color:var(--muted);font-size:15px;line-height:1}
+  .disabled-note{opacity:.5;pointer-events:none}
+
+  /* 텍스트 레이어(캔버스 위) */
+  .tx{position:absolute;white-space:pre;line-height:1.25;cursor:move;user-select:none;padding:0;margin:0}
+  .tx.sel{outline:1.5px dashed var(--accent);outline-offset:2px}
+  .wrap.erase .tx{pointer-events:none}
+  /* 리사이즈 핸들 (선택된 텍스트 박스의 8방향) */
+  .hd{position:absolute;width:12px;height:12px;background:var(--accent);border:1.5px solid #fff;
+    border-radius:2px;z-index:6;transform:translate(-50%,-50%);box-shadow:0 0 0 1px rgba(0,0,0,.35)}
+  .wrap.erase .hd{display:none}
+
+  /* 갤러리 피커 모달 */
+  .modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:30}
+  .modal.show{display:flex}
+  .sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:min(680px,92vw);
+    max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+  .sheet h2{margin:0;padding:14px 16px;font-size:15px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .sheet .x{background:none;border:none;color:var(--muted);font-size:20px}
+  .grid{padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;overflow:auto}
+  .grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+  .grid img:hover{border-color:var(--accent)}
+  .gmsg{padding:24px;color:var(--muted);text-align:center;font-size:13px}
+</style>
+</head>
+<body>
+  <!-- 상단: 이미지 / 지우개 / 저장 -->
+  <div class="bar">
+    <div class="grp">
+      <span class="lab">이미지</span>
+      <button class="btn" id="btnUpload">업로드</button>
+      <button class="btn" id="btnGallery">갤러리에서</button>
+    </div>
+    <div class="grp">
+      <span class="lab">지우개</span>
+      <button class="btn" id="btnErase" disabled>드로잉 지우기</button>
+      <div class="seg" id="eraseModeSeg" style="width:150px;flex:none">
+        <button data-m="heal" class="on" title="주변 색으로 메워 워터마크처럼 지움">주변색</button>
+        <button data-m="clear" title="투명하게 뚫음">투명</button>
+      </div>
+      <input type="range" id="brush" min="6" max="200" value="48" disabled style="width:110px" />
+      <span class="num" id="brushVal">48px</span>
+    </div>
+    <div class="grp">
+      <span class="lab">편집</span>
+      <button class="btn" id="btnUndo" disabled title="되돌리기 (Cmd/Ctrl+Z)">↩ 되돌리기</button>
+    </div>
+    <div class="grp" style="margin-left:auto">
+      <button class="btn primary" id="btnSave" disabled>갤러리에 저장</button>
+      <button class="btn" id="btnDownload" disabled>다운로드</button>
+      <button class="btn" id="btnOpenFolder">폴더 열기</button>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- 캔버스 -->
+    <div class="stage" id="stage">
+      <div class="empty" id="empty">이미지를 <b>업로드</b>하거나 <b>갤러리에서</b> 불러오세요.<br/>드로잉으로 일부를 지우고, 오른쪽에서 텍스트를 올린 뒤 저장합니다.</div>
+      <div class="wrap" id="wrap" style="display:none">
+        <canvas id="base"></canvas>
+      </div>
+    </div>
+
+    <!-- 오른쪽 텍스트 패널 -->
+    <aside class="side" id="side">
+      <div class="sec">
+        <h3>텍스트 추가</h3>
+        <textarea id="newText" placeholder="여러 줄 입력 가능&#10;예) Name: Termie&#10;Species: Lemur-like" rows="3"></textarea>
+        <button class="btn primary" id="btnAddText" disabled>＋ 텍스트 추가</button>
+        <div class="muted">추가 후 화면에서 드래그해 위치를 옮기세요.</div>
+      </div>
+
+      <div class="sec" id="editSec" style="display:none">
+        <h3>선택한 텍스트 편집</h3>
+        <textarea id="editText" rows="4" placeholder="내용"></textarea>
+        <div class="field">
+          <span>폰트</span>
+          <div class="row2">
+            <select id="fontFam"></select>
+            <select id="fontWt"></select>
+          </div>
+        </div>
+        <div class="field">
+          <span>글자 색</span>
+          <div class="row">
+            <input type="color" id="txtColor" value="#ffffff" />
+            <button class="sw" data-c="#ffffff" style="background:#fff"></button>
+            <button class="sw" data-c="#111111" style="background:#111"></button>
+            <button class="sw" data-c="#3d5afe" style="background:#3d5afe"></button>
+            <button class="sw" data-c="#ffd400" style="background:#ffd400"></button>
+          </div>
+        </div>
+        <div class="field">
+          <span>크기 <b id="txtSizeVal" style="color:var(--ink)">80</b></span>
+          <input type="range" id="txtSize" min="10" max="800" value="80" />
+        </div>
+        <div class="field">
+          <span>정렬</span>
+          <div class="seg" id="alignSeg">
+            <button data-a="left" class="on">왼쪽</button>
+            <button data-a="center">가운데</button>
+            <button data-a="right">오른쪽</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="row" style="justify-content:space-between">
+            <label class="row" style="gap:6px;color:var(--ink);font-weight:700;font-size:12.5px">
+              <input type="checkbox" id="bgOn" /> 배경 박스
+            </label>
+          </span>
+          <div id="bgCtl" class="field disabled-note" style="gap:8px">
+            <div class="row">
+              <input type="color" id="bgColor" value="#000000" />
+              <span class="muted">불투명도 <b id="bgAlphaVal" style="color:var(--ink)">45%</b></span>
+            </div>
+            <input type="range" id="bgAlpha" min="0" max="100" value="45" />
+            <div class="field">
+              <span>여백 <b id="bgPadVal" style="color:var(--ink)">18</b></span>
+              <input type="range" id="bgPad" min="0" max="80" value="18" />
+            </div>
+          </div>
+        </div>
+
+        <button class="btn" id="btnDelText" style="border-color:#5b2a32;color:#ff8a9b">선택 텍스트 삭제</button>
+      </div>
+
+      <div class="sec" id="layersSec" style="display:none">
+        <h3>레이어</h3>
+        <div class="layers" id="layers"></div>
+      </div>
+    </aside>
+  </div>
+
+  <input type="file" id="file" accept="image/*" style="display:none" />
+
+  <div class="modal" id="modal">
+    <div class="sheet">
+      <h2>갤러리에서 가져오기 <button class="x" id="modalClose">×</button></h2>
+      <div class="grid" id="grid"><div class="gmsg">불러오는 중…</div></div>
+    </div>
+  </div>
+
+<script>
+// ── 폰트 (카드뉴스와 동일한 FAMILIES) ───────────────────────────────────────
+const FAMILIES = [
+  { label:'프리텐다드 (기본)', weights:[ {label:'기본', css:'Pretendard', file:null} ] },
+  { label:'검은고딕', weights:[ {label:'기본', css:'BlackHanSans', file:'BlackHanSans-Regular.ttf'} ] },
+  { label:'카페24 써라운드', weights:[ {label:'기본', css:'Cafe24Ssurround', file:'Cafe24Ssurround-v2.0.ttf'} ] },
+  { label:'고도', weights:[ {label:'M', css:'GodoM', file:'GodoM.ttf'}, {label:'B(굵게)', css:'GodoB', file:'GodoB.ttf'} ] },
+  { label:'고운돋움', weights:[ {label:'기본', css:'GowunDodum', file:'GowunDodum-Regular.ttf'} ] },
+  { label:'레시피코리아', weights:[ {label:'기본', css:'Recipekorea', file:'Recipekorea.ttf'} ] },
+  { label:'리아산스', weights:[
+    {label:'Regular', css:'RiaSans', file:'RiaSans-Regular.ttf'},
+    {label:'Bold', css:'RiaSansBold', file:'RiaSans-Bold.ttf'},
+    {label:'ExtraBold', css:'RiaSansEB', file:'RiaSans-ExtraBold.ttf'} ] },
+  { label:'아리따부리', weights:[
+    {label:'헤어라인', css:'AritaBuriHair', file:'AritaBuriKR-HairLine.ttf'},
+    {label:'Light', css:'AritaBuriLight', file:'AritaBuriKR-Light.ttf'},
+    {label:'Medium', css:'AritaBuriMedium', file:'AritaBuriKR-Medium.ttf'},
+    {label:'SemiBold', css:'AritaBuriSemiBold', file:'AritaBuriKR-SemiBold.ttf'},
+    {label:'Bold', css:'AritaBuriBold', file:'AritaBuriKR-Bold.ttf'} ] },
+  { label:'페이퍼로지', weights:[
+    {label:'Thin', css:'Paperlogy1', file:'Paperlogy-1Thin.ttf'},
+    {label:'ExtraLight', css:'Paperlogy2', file:'Paperlogy-2ExtraLight.ttf'},
+    {label:'Light', css:'Paperlogy3', file:'Paperlogy-3Light.ttf'},
+    {label:'Regular', css:'Paperlogy4', file:'Paperlogy-4Regular.ttf'},
+    {label:'Medium', css:'Paperlogy5', file:'Paperlogy-5Medium.ttf'},
+    {label:'SemiBold', css:'Paperlogy6', file:'Paperlogy-6SemiBold.ttf'},
+    {label:'Bold', css:'Paperlogy7', file:'Paperlogy-7Bold.ttf'},
+    {label:'ExtraBold', css:'Paperlogy8', file:'Paperlogy-8ExtraBold.ttf'},
+    {label:'Black', css:'Paperlogy9', file:'Paperlogy-9Black.ttf'} ] },
+  { label:'프리젠테이션', weights:[ {label:'기본', css:'Freesentation', file:'FreesentationVF.ttf'} ] },
+  { label:'MBC1961 굴림', weights:[ {label:'기본', css:'MBC1961Gulim', file:'MBC1961Gulim.otf'} ] },
+  { label:'Swagger (영문)', weights:[ {label:'기본', css:'Swagger', file:'Swagger.ttf'} ] },
+  { label:'Palladium (영문)', weights:[ {label:'기본', css:'Palladium', file:'Palladium.ttf'} ] },
+];
+(function injectFaces(){
+  const faces=[];
+  FAMILIES.forEach(f=>f.weights.forEach(w=>{ if(w.file) faces.push(`@font-face{font-family:'${w.css}';src:url('fonts/${encodeURIComponent(w.file)}');font-display:swap;}`); }));
+  const st=document.createElement('style'); st.textContent=faces.join('\n'); document.head.appendChild(st);
+})();
+
+const $=(s)=>document.querySelector(s);
+const stageEl=$('#stage'), wrap=$('#wrap'), base=$('#base'), ctx=base.getContext('2d'), empty=$('#empty');
+
+// ── 상태 ────────────────────────────────────────────────────────────────
+let img=null, W=0, H=0, fit=1, mode='move';
+let texts=[]; let selId=null; let nid=1;
+// 컨트롤 기본값(선택 없을 때 새 텍스트에 적용 / 선택 시 그 레이어와 동기화)
+let cur={ fam:0, wt:0, color:'#ffffff', size:80, align:'left', bgOn:false, bgColor:'#000000', bgAlpha:45, bgPad:18 };
+
+const fmCss=(fam,wt)=>FAMILIES[fam].weights[wt].css;
+const selText=()=>texts.find(t=>t.id===selId);
+function hexToRgba(hex,a){ const n=parseInt(hex.slice(1),16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+
+// 텍스트 측정/줄바꿈 (화면 div 와 내보내기 canvas 가 동일 결과를 쓰도록 직접 계산)
+const mctx=document.createElement('canvas').getContext('2d');
+function setMF(t){ mctx.font=`${t.size}px '${fmCss(t.fam,t.wt)}'`; }
+function naturalTextWidth(t){ setMF(t); let mx=0; t.text.split('\n').forEach(l=>mx=Math.max(mx,mctx.measureText(l).width)); return Math.ceil(mx)+2; }
+// raw text(명시적 \n) 를 폭 t.w 에 맞춰 줄바꿈한 라인 배열
+function wrapLines(t){
+  if(!t.w) t.w=naturalTextWidth(t);
+  setMF(t); const maxW=t.w, out=[];
+  t.text.split('\n').forEach(para=>{
+    if(para===''){ out.push(''); return; }
+    let line='';
+    const toks=para.match(/\s+|\S+/g)||[];
+    const charBreak=(tok)=>{ let cur=''; for(const ch of tok){ if(cur && mctx.measureText(cur+ch).width>maxW){ out.push(cur); cur=ch; } else cur+=ch; } return cur; };
+    for(let tok of toks){
+      if(line==='' ){ line = mctx.measureText(tok).width>maxW ? charBreak(tok) : tok; continue; }
+      if(mctx.measureText(line+tok).width<=maxW){ line+=tok; }
+      else { out.push(line.replace(/\s+$/,'')); tok=tok.replace(/^\s+/,''); line = mctx.measureText(tok).width>maxW ? charBreak(tok) : tok; }
+    }
+    out.push(line);
+  });
+  return out;
+}
+const LH=1.25;
+function boxNatW(t){ return t.w + (t.bgOn?2*t.bgPad:0); }
+function boxNatH(t){ return wrapLines(t).length*(t.size*LH) + (t.bgOn?2*t.bgPad:0); }
+
+// ── 되돌리기(undo) ───────────────────────────────────────────────────────
+// 한 동작 시작 전에 전체 상태(베이스 캔버스 + 텍스트)를 스냅샷해 스택에 쌓는다.
+const undoStack=[]; const UNDO_MAX=20;
+function snapshot(){
+  const c=document.createElement('canvas'); c.width=W; c.height=H; c.getContext('2d').drawImage(base,0,0);
+  return { base:c, texts:JSON.parse(JSON.stringify(texts)), selId, nid };
+}
+function pushUndo(){ if(!img) return; undoStack.push(snapshot()); if(undoStack.length>UNDO_MAX) undoStack.shift(); updateUndo(); }
+function doUndo(){
+  const s=undoStack.pop(); if(!s) return;
+  ctx.clearRect(0,0,W,H); ctx.globalCompositeOperation='source-over'; ctx.drawImage(s.base,0,0);
+  texts=s.texts; selId=s.selId; nid=s.nid;
+  renderTexts(); syncPanel(); updateUndo();
+}
+function updateUndo(){ $('#btnUndo').disabled = undoStack.length===0; }
+// 슬라이더/타이핑 등 연속 변경은 제스처당 1회만 스냅샷(editCap 플래그로 합침)
+let editCap=false;
+function beginEdit(){ if(!editCap){ pushUndo(); editCap=true; } }
+window.addEventListener('pointerup',()=>{ editCap=false; });
+
+// ── 이미지 로드 ──────────────────────────────────────────────────────────
+function loadImage(dataUrl){
+  const im=new Image();
+  im.onload=()=>{
+    img=im; W=im.naturalWidth; H=im.naturalHeight;
+    base.width=W; base.height=H;
+    ctx.clearRect(0,0,W,H); ctx.globalCompositeOperation='source-over'; ctx.drawImage(im,0,0,W,H);
+    texts=[]; selId=null;
+    empty.style.display='none'; wrap.style.display='block';
+    ['btnErase','brush','btnAddText','btnSave','btnDownload'].forEach(id=>$('#'+id).disabled=false);
+    cur.size=Math.max(12, Math.round(Math.min(W,H)*0.045)); // 이미지 크기에 맞춘 기본 글자크기
+    undoStack.length=0; updateUndo();
+    relayout(); renderTexts(); syncPanel();
+  };
+  im.src=dataUrl;
+}
+function computeFit(){ const aw=stageEl.clientWidth-36, ah=stageEl.clientHeight-36; fit=Math.min(aw/W, ah/H, 1); if(!isFinite(fit)||fit<=0) fit=1; }
+function relayout(){ if(!img) return; computeFit(); base.style.width=(W*fit)+'px'; base.style.height=(H*fit)+'px'; wrap.style.width=(W*fit)+'px'; wrap.style.height=(H*fit)+'px'; layoutTexts(); }
+window.addEventListener('resize', relayout);
+
+// ── 텍스트 레이어 (DOM) ──────────────────────────────────────────────────
+function renderTexts(){
+  [...wrap.querySelectorAll('.tx')].forEach(n=>n.remove());
+  texts.forEach(t=>{
+    const d=document.createElement('div');
+    d.className='tx'+(t.id===selId?' sel':''); d.dataset.id=t.id;
+    d.addEventListener('pointerdown',(e)=>startDrag(e,t.id));
+    wrap.appendChild(d);
+    applyTextNode(d,t);
+  });
+  renderLayers(); renderHandles();
+}
+// 노드의 모든 시각요소를 t 로 갱신 (줄바꿈은 wrapLines 로 직접 계산 → 화면=저장 일치)
+function applyTextNode(d,t){
+  d.style.fontFamily=`'${fmCss(t.fam,t.wt)}'`;
+  d.style.color=t.color; d.style.textAlign=t.align;
+  d.style.whiteSpace='pre';
+  d.style.background = t.bgOn ? hexToRgba(t.bgColor, t.bgAlpha/100) : 'transparent';
+  d.style.left=(t.x*fit)+'px'; d.style.top=(t.y*fit)+'px';
+  d.style.fontSize=(t.size*fit)+'px';
+  d.style.width=(t.w*fit)+'px';
+  d.style.padding=(t.bgOn?(t.bgPad*fit):0)+'px';
+  d.textContent=wrapLines(t).join('\n');
+}
+function nodeOf(id){ return wrap.querySelector(`.tx[data-id="${id}"]`); }
+function layoutTexts(){ texts.forEach(t=>{ const d=nodeOf(t.id); if(d) applyTextNode(d,t); }); positionHandles(); }
+function addText(){
+  const v=$('#newText').value.replace(/\s+$/,''); if(!v||!img) return;
+  pushUndo();
+  const t={ id:nid++, text:v, x:Math.round(W*0.06), y:Math.round(H*0.06),
+    fam:cur.fam, wt:cur.wt, color:cur.color, size:cur.size, align:cur.align,
+    bgOn:cur.bgOn, bgColor:cur.bgColor, bgAlpha:cur.bgAlpha, bgPad:cur.bgPad };
+  t.w=Math.min(naturalTextWidth(t), Math.round(W*0.8));
+  texts.push(t); selId=t.id; $('#newText').value='';
+  renderTexts(); syncPanel();
+}
+// 선택: 노드를 재생성하지 않고 'sel' 클래스만 토글(드래그 중에도 노드가 살아있게)
+function selectText(id){
+  selId=id; editCap=false;
+  wrap.querySelectorAll('.tx').forEach(d=>d.classList.toggle('sel', String(d.dataset.id)===String(id)));
+  renderLayers(); renderHandles(); syncPanel();
+}
+
+// ── 리사이즈 핸들 (8방향) ────────────────────────────────────────────────
+const HANDLES=[
+  {k:'nw',cur:'nwse-resize'},{k:'n',cur:'ns-resize'},{k:'ne',cur:'nesw-resize'},
+  {k:'e',cur:'ew-resize'},{k:'se',cur:'nwse-resize'},{k:'s',cur:'ns-resize'},
+  {k:'sw',cur:'nesw-resize'},{k:'w',cur:'ew-resize'}
+];
+function handlePos(){
+  const t=selText(); if(!t) return null; const d=nodeOf(t.id); if(!d) return null;
+  const bx=d.offsetLeft, by=d.offsetTop, bw=d.offsetWidth, bh=d.offsetHeight;
+  return { nw:[bx,by], n:[bx+bw/2,by], ne:[bx+bw,by], e:[bx+bw,by+bh/2],
+    se:[bx+bw,by+bh], s:[bx+bw/2,by+bh], sw:[bx,by+bh], w:[bx,by+bh/2] };
+}
+function renderHandles(){
+  [...wrap.querySelectorAll('.hd')].forEach(n=>n.remove());
+  const pos=handlePos(); if(!pos || mode==='erase') return;
+  HANDLES.forEach(h=>{
+    const el=document.createElement('div'); el.className='hd'; el.dataset.k=h.k; el.style.cursor=h.cur;
+    el.style.left=pos[h.k][0]+'px'; el.style.top=pos[h.k][1]+'px';
+    el.addEventListener('pointerdown',(e)=>startResize(e,h.k));
+    wrap.appendChild(el);
+  });
+}
+// 재생성 없이 위치만 갱신 (드래그/리사이즈 중 캡처 유지)
+function positionHandles(){ const pos=handlePos(); if(!pos) return; wrap.querySelectorAll('.hd').forEach(el=>{ const p=pos[el.dataset.k]; if(p){ el.style.left=p[0]+'px'; el.style.top=p[1]+'px'; } }); }
+let rez=null;
+function startResize(e,k){
+  e.preventDefault(); e.stopPropagation();
+  const t=selText(); if(!t) return;
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  pushUndo();
+  rez={ k, el:e.currentTarget, pid:e.pointerId,
+    x0:t.x, y0:t.y, w0:t.w, s0:t.size, pad0:t.bgPad, bw0:boxNatW(t), bh0:boxNatH(t) };
+  window.addEventListener('pointermove',onResize); window.addEventListener('pointerup',endResize);
+}
+function onResize(e){
+  if(!rez) return; const t=selText(); if(!t) return;
+  const r=wrap.getBoundingClientRect();
+  const px=(e.clientX-r.left)/fit, py=(e.clientY-r.top)/fit;
+  const {k,x0,y0,w0,s0,pad0,bw0,bh0}=rez;
+  const right0=x0+bw0, bottom0=y0+bh0;
+  const scaleBy=(ratio)=>{ ratio=Math.max(0.05,ratio); t.w=Math.max(16,Math.round(w0*ratio)); t.size=Math.max(6,+(s0*ratio).toFixed(1)); t.bgPad=Math.round(pad0*ratio); };
+  if(k==='e'){ t.w=Math.max(16, Math.round((px-x0) - (t.bgOn?2*t.bgPad:0))); }
+  else if(k==='w'){ const bw=Math.max(20, right0-px); t.w=Math.max(16, Math.round(bw-(t.bgOn?2*t.bgPad:0))); t.x=Math.round(right0-boxNatW(t)); }
+  else if(k==='s'){ scaleBy((py-y0)/bh0); }
+  else if(k==='n'){ scaleBy((bottom0-py)/bh0); t.y=Math.round(bottom0-boxNatH(t)); }
+  else if(k==='se'){ scaleBy((px-x0)/bw0); }
+  else if(k==='sw'){ scaleBy((right0-px)/bw0); t.x=Math.round(right0-boxNatW(t)); }
+  else if(k==='ne'){ scaleBy((px-x0)/bw0); t.y=Math.round(bottom0-boxNatH(t)); }
+  else if(k==='nw'){ scaleBy((right0-px)/bw0); t.x=Math.round(right0-boxNatW(t)); t.y=Math.round(bottom0-boxNatH(t)); }
+  const d=nodeOf(t.id); if(d) applyTextNode(d,t);
+  positionHandles();
+  $('#txtSize').value=Math.min(+$('#txtSize').max, Math.round(t.size)); $('#txtSizeVal').textContent=Math.round(t.size);
+}
+function endResize(){ if(rez){ try{ rez.el.releasePointerCapture(rez.pid); }catch(_){} } rez=null;
+  window.removeEventListener('pointermove',onResize); window.removeEventListener('pointerup',endResize); }
+function delText(){ if(selId==null) return; pushUndo(); texts=texts.filter(t=>t.id!==selId); selId=null; renderTexts(); syncPanel(); }
+
+// 드래그 이동 (포인터 캡처로 화면 어디로든 끌 수 있게)
+let drag=null;
+function startDrag(e,id){
+  if(mode==='erase') return;
+  e.preventDefault();
+  const el=e.currentTarget; try{ el.setPointerCapture(e.pointerId); }catch(_){}
+  selectText(id);
+  const t=selText(); if(!t) return;
+  const r=wrap.getBoundingClientRect();
+  drag={ id, pid:e.pointerId, el, dx:(e.clientX-r.left)/fit - t.x, dy:(e.clientY-r.top)/fit - t.y, captured:false };
+  window.addEventListener('pointermove',onDrag); window.addEventListener('pointerup',endDrag);
+}
+function onDrag(e){ if(!drag) return; const t=texts.find(x=>x.id===drag.id); if(!t) return;
+  if(!drag.captured){ pushUndo(); drag.captured=true; } // 실제로 움직일 때만 1회 스냅샷
+  const r=wrap.getBoundingClientRect();
+  t.x=Math.round((e.clientX-r.left)/fit-drag.dx); t.y=Math.round((e.clientY-r.top)/fit-drag.dy);
+  layoutTexts();
+}
+function endDrag(){ if(drag){ try{ drag.el.releasePointerCapture(drag.pid); }catch(_){} } drag=null;
+  window.removeEventListener('pointermove',onDrag); window.removeEventListener('pointerup',endDrag); }
+
+// 레이어 목록
+function renderLayers(){
+  $('#layersSec').style.display = texts.length ? 'flex' : 'none';
+  const box=$('#layers'); box.innerHTML='';
+  texts.forEach(t=>{
+    const row=document.createElement('div'); row.className='layer'+(t.id===selId?' sel':'');
+    const label=(t.text.split('\n')[0]||'(빈 텍스트)').slice(0,22);
+    row.innerHTML=`<span class="t">${label.replace(/</g,'&lt;')}</span><button class="del" title="삭제">×</button>`;
+    row.querySelector('.t').addEventListener('click',()=>selectText(t.id));
+    row.querySelector('.del').addEventListener('click',(e)=>{ e.stopPropagation(); selId=t.id; delText(); });
+    box.appendChild(row);
+  });
+}
+
+// ── 오른쪽 패널 ↔ 선택 텍스트 동기화 ──────────────────────────────────────
+function buildFamilies(){ $('#fontFam').innerHTML=FAMILIES.map((f,i)=>`<option value="${i}">${f.label}</option>`).join(''); }
+function buildWeights(fam){ $('#fontWt').innerHTML=FAMILIES[fam].weights.map((w,j)=>`<option value="${j}">${w.label}</option>`).join(''); }
+buildFamilies(); buildWeights(0);
+
+function syncPanel(){
+  const t=selText();
+  $('#editSec').style.display = t ? 'flex' : 'none';
+  const s = t || cur;
+  $('#fontFam').value=s.fam; buildWeights(s.fam); $('#fontWt').value=s.wt;
+  $('#txtColor').value=s.color;
+  $('#txtSize').value=Math.min(400,s.size); $('#txtSizeVal').textContent=s.size;
+  $('#alignSeg').querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.a===s.align));
+  $('#bgOn').checked=s.bgOn; $('#bgCtl').classList.toggle('disabled-note', !s.bgOn);
+  $('#bgColor').value=s.bgColor; $('#bgAlpha').value=s.bgAlpha; $('#bgAlphaVal').textContent=s.bgAlpha+'%';
+  $('#bgPad').value=s.bgPad; $('#bgPadVal').textContent=s.bgPad;
+  if(t) $('#editText').value=t.text;
+}
+// 컨트롤 변경 → 선택 텍스트(있으면)와 cur 기본값 둘 다 갱신
+function apply(patch){ Object.assign(cur,patch); const t=selText(); if(t){ beginEdit(); Object.assign(t,patch); renderTexts(); } }
+
+$('#editText').addEventListener('input',e=>{ const t=selText(); if(t){ beginEdit(); t.text=e.target.value; renderTexts(); } });
+$('#editText').addEventListener('change',()=>{ editCap=false; });
+$('#fontFam').addEventListener('change',e=>{ const fam=+e.target.value; buildWeights(fam); $('#fontWt').value=0; apply({fam,wt:0}); });
+$('#fontWt').addEventListener('change',e=>apply({wt:+e.target.value}));
+$('#txtColor').addEventListener('input',e=>apply({color:e.target.value}));
+document.querySelectorAll('.sw[data-c]').forEach(b=>b.addEventListener('click',()=>{ $('#txtColor').value=b.dataset.c; apply({color:b.dataset.c}); }));
+$('#txtSize').addEventListener('input',e=>{ const v=+e.target.value; $('#txtSizeVal').textContent=v; apply({size:v}); });
+$('#alignSeg').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{ $('#alignSeg').querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); apply({align:b.dataset.a}); }));
+$('#bgOn').addEventListener('change',e=>{ $('#bgCtl').classList.toggle('disabled-note',!e.target.checked); apply({bgOn:e.target.checked}); });
+$('#bgColor').addEventListener('input',e=>apply({bgColor:e.target.value}));
+$('#bgAlpha').addEventListener('input',e=>{ $('#bgAlphaVal').textContent=e.target.value+'%'; apply({bgAlpha:+e.target.value}); });
+$('#bgPad').addEventListener('input',e=>{ $('#bgPadVal').textContent=e.target.value; apply({bgPad:+e.target.value}); });
+$('#btnAddText').addEventListener('click',addText);
+$('#btnDelText').addEventListener('click',delText);
+$('#btnUndo').addEventListener('click',doUndo);
+window.addEventListener('keydown',(e)=>{
+  const tag=(e.target&&e.target.tagName)||'';
+  // textarea/input 안에서는 네이티브 텍스트 되돌리기를 우선
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'&&!e.shiftKey&&!/TEXTAREA|INPUT|SELECT/.test(tag)){ e.preventDefault(); doUndo(); }
+});
+
+// ── 지우개 ───────────────────────────────────────────────────────────────
+function setMode(m){ mode=m; $('#btnErase').classList.toggle('on',m==='erase'); wrap.classList.toggle('erase',m==='erase');
+  if(m==='erase'){ selId=null; renderTexts(); syncPanel(); } }
+let eraseMode='heal'; // 'heal' = 주변색으로 메움(워터마크 제거 느낌), 'clear' = 투명
+$('#eraseModeSeg').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+  $('#eraseModeSeg').querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); eraseMode=b.dataset.m;
+}));
+$('#btnErase').addEventListener('click',()=>setMode(mode==='erase'?'move':'erase'));
+$('#brush').addEventListener('input',e=>$('#brushVal').textContent=e.target.value+'px');
+let erasing=false, lastPt=null;
+const ptN=(e)=>{ const r=base.getBoundingClientRect(); return {x:(e.clientX-r.left)/fit, y:(e.clientY-r.top)/fit}; };
+const brushR=()=>(+$('#brush').value)/fit/2;
+base.addEventListener('pointerdown',(e)=>{ if(mode!=='erase'||!img) return; e.preventDefault(); pushUndo(); erasing=true; base.setPointerCapture(e.pointerId); lastPt=ptN(e); dab(lastPt); });
+base.addEventListener('pointermove',(e)=>{ if(!erasing) return; const p=ptN(e); stroke(lastPt,p); lastPt=p; });
+base.addEventListener('pointerup',()=>{ erasing=false; lastPt=null; });
+
+// 투명 지우기 (destination-out)
+function eDot(p){ ctx.save(); ctx.globalCompositeOperation='destination-out'; ctx.beginPath(); ctx.arc(p.x,p.y,brushR(),0,7); ctx.fill(); ctx.restore(); }
+function eLine(a,b){ ctx.save(); ctx.globalCompositeOperation='destination-out'; ctx.lineWidth=brushR()*2; ctx.lineCap='round'; ctx.lineJoin='round'; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.restore(); }
+
+// 주변색 채우기(힐링): 브러시 바깥 고리(annulus)의 평균색을 샘플해 안쪽을 부드럽게 메움
+function sampleSurround(p,r){
+  const R=Math.ceil(r*2);
+  const x0=Math.max(0,Math.floor(p.x-R)), y0=Math.max(0,Math.floor(p.y-R));
+  const x1=Math.min(W,Math.ceil(p.x+R)), y1=Math.min(H,Math.ceil(p.y+R));
+  const w=x1-x0, h=y1-y0; if(w<=0||h<=0) return null;
+  let d; try{ d=ctx.getImageData(x0,y0,w,h).data; }catch(_){ return null; }
+  let rs=0,gs=0,bs=0,n=0;
+  for(let yy=0;yy<h;yy++) for(let xx=0;xx<w;xx++){
+    const dist=Math.hypot((x0+xx)-p.x,(y0+yy)-p.y);
+    if(dist>=r*1.02 && dist<=r*2){ const i=(yy*w+xx)*4; if(d[i+3]<8) continue; rs+=d[i];gs+=d[i+1];bs+=d[i+2];n++; }
+  }
+  if(!n) return null; return {r:Math.round(rs/n),g:Math.round(gs/n),b:Math.round(bs/n)};
+}
+function healDab(p,r,c){
+  if(!c) return;
+  const g=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,r);
+  g.addColorStop(0,`rgba(${c.r},${c.g},${c.b},1)`);
+  g.addColorStop(0.72,`rgba(${c.r},${c.g},${c.b},1)`);
+  g.addColorStop(1,`rgba(${c.r},${c.g},${c.b},0)`); // 가장자리 페더 → 경계 자연스럽게
+  ctx.save(); ctx.globalCompositeOperation='source-over'; ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p.x,p.y,r,0,7); ctx.fill(); ctx.restore();
+}
+// 점/선 공통 진입점 — 모드에 따라 투명 또는 힐링
+function dab(p){ const r=brushR(); if(eraseMode==='clear') eDot(p); else healDab(p,r,sampleSurround(p,r)); }
+function stroke(a,b){
+  const r=brushR();
+  if(eraseMode==='clear'){ eLine(a,b); return; }
+  const dist=Math.hypot(b.x-a.x,b.y-a.y), steps=Math.max(1,Math.floor(dist/(r*0.4)));
+  for(let i=1;i<=steps;i++){ const t=i/steps, p={x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t}; healDab(p,r,sampleSurround(p,r)); }
+}
+// 빈 캔버스 클릭 → 선택 해제
+wrap.addEventListener('pointerdown',(e)=>{ if(e.target===base && mode==='move'){ selectText(null); } });
+
+// ── 내보내기 (베이스 + 텍스트(배경박스 포함) → PNG) ───────────────────────
+async function exportPng(){
+  const used=[...new Set(texts.map(t=>fmCss(t.fam,t.wt)))];
+  try{ await Promise.all(used.map(c=>document.fonts.load(`32px '${c}'`))); }catch(_){}
+  const out=document.createElement('canvas'); out.width=W; out.height=H; const o=out.getContext('2d');
+  o.drawImage(base,0,0);
+  texts.forEach(t=>{
+    o.font=`${t.size}px '${fmCss(t.fam,t.wt)}'`;
+    const lines=wrapLines(t); const lh=t.size*LH; const pad=t.bgOn?t.bgPad:0;
+    const boxW=t.w; // 박스 폭 = wrap 폭(고정), 화면 div 와 동일
+    if(t.bgOn){ o.fillStyle=hexToRgba(t.bgColor,t.bgAlpha/100); o.fillRect(t.x, t.y, boxW+pad*2, lines.length*lh+pad*2); }
+    o.fillStyle=t.color; o.textBaseline='top';
+    lines.forEach((ln,i)=>{
+      const lw=o.measureText(ln).width;
+      const lx = t.align==='center' ? t.x+pad+(boxW-lw)/2 : t.align==='right' ? t.x+pad+(boxW-lw) : t.x+pad;
+      o.fillText(ln, lx, t.y+pad+i*lh);
+    });
+  });
+  return out.toDataURL('image/png');
+}
+const ts=()=>{ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; };
+$('#btnSave').addEventListener('click',async()=>parent.postMessage({type:'imgedit:save',dataUrl:await exportPng(),filename:`edited_${ts()}.png`},'*'));
+$('#btnDownload').addEventListener('click',async()=>parent.postMessage({type:'imgedit:download',dataUrl:await exportPng(),filename:`edited_${ts()}.png`},'*'));
+$('#btnOpenFolder').addEventListener('click',()=>parent.postMessage({type:'imgedit:open-folder'},'*'));
+
+// ── 이미지 불러오기 ───────────────────────────────────────────────────────
+$('#btnUpload').addEventListener('click',()=>$('#file').click());
+$('#file').addEventListener('change',(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const fr=new FileReader(); fr.onload=()=>loadImage(fr.result); fr.readAsDataURL(f); e.target.value=''; });
+$('#btnGallery').addEventListener('click',()=>{ $('#grid').innerHTML='<div class="gmsg">불러오는 중…</div>'; $('#modal').classList.add('show'); parent.postMessage({type:'imgedit:request-gallery'},'*'); });
+$('#modalClose').addEventListener('click',()=>$('#modal').classList.remove('show'));
+$('#modal').addEventListener('click',(e)=>{ if(e.target===$('#modal')) $('#modal').classList.remove('show'); });
+window.addEventListener('message',(e)=>{
+  const d=e.data||{};
+  if(d.type==='imgedit:gallery-list'){
+    const items=d.items||[];
+    $('#grid').innerHTML = items.length ? items.map(it=>`<img src="${it.thumb}" data-id="${it.id}" />`).join('') : '<div class="gmsg">갤러리에 이미지가 없습니다. (업로드를 쓰세요)</div>';
+    $('#grid').querySelectorAll('img').forEach(im=>im.addEventListener('click',()=>{ parent.postMessage({type:'imgedit:gallery-pick',id:im.dataset.id},'*'); $('#grid').innerHTML='<div class="gmsg">불러오는 중…</div>'; }));
+  } else if(d.type==='imgedit:gallery-image' && d.dataUrl){ $('#modal').classList.remove('show'); loadImage(d.dataUrl); }
+});
+syncPanel();
+</script>
+</body>
+</html>

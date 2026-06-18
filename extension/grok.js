@@ -200,10 +200,30 @@
     if (c) { const x = c.querySelector('button'); if (x) { x.click(); return true } }
     return false
   }
-  function foundVideo() {
-    const vids = qsa('video#hd-video, video#sd-video, video[src*="generated_video"]')
-    for (const v of vids) { const s = v.src || (v.querySelector('source') && v.querySelector('source').src); if (s) return { v, s } }
-    return null
+  const vidSrc = (v) => v.src || (v.querySelector('source') && v.querySelector('source').src) || ''
+  // 현재 페이지의 모든 video src 집합 — 제출 직전에 찍어 "이전부터 있던 영상"을 가린다.
+  function videoSrcSet() {
+    const set = new Set()
+    for (const v of qsa('video')) { const s = vidSrc(v); if (s) set.add(s) }
+    return set
+  }
+  // baseline 에 없던(= 이번 생성으로 새로 나타난) 결과 영상을 찾는다.
+  // 새 UI 는 video id/패턴이 다를 수 있으므로 "새 src" 기준으로 고르고, 그 안에서 결과답게 보이는 걸 우선.
+  function foundVideo(baseline) {
+    const base = baseline || new Set()
+    const cands = []
+    for (const v of qsa('video')) {
+      const s = vidSrc(v)
+      if (!s || base.has(s) || s.startsWith('data:')) continue   // 이전부터 있던 것/포스터 제외
+      if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(s)) continue    // 이미지 썸네일 제외
+      cands.push({ v, s })
+    }
+    if (!cands.length) return null
+    const pick =
+      cands.find((c) => c.v.id === 'hd-video' || c.v.id === 'sd-video') ||
+      cands.find((c) => /generated_video|assets\.grok|\/video/i.test(c.s)) ||
+      cands[cands.length - 1]
+    return pick
   }
   async function clickUpscale() {
     // 새 UI: 결과 우측에 업스케일 버튼이 직접 노출되면 메뉴 안 거치고 바로 클릭(버튼 활성까지 최대 30s 대기).
@@ -268,10 +288,14 @@
     )
   }
   async function goFreshImagine() {
-    const link = findImagineLink()
-    if (link) {
-      realClick(link)
-      await sleep(1500)
+    // 새 UI: "New Generation" 버튼이 인라인 리셋 진입점 — 먼저 시도(이전 영상/대화 제거).
+    const newGen = qs('button[aria-label="New Generation"], button[aria-label="새 생성"], button[aria-label="새 생성하기"]')
+    if (newGen) {
+      realClick(newGen)
+      await sleep(1200)
+    } else {
+      const link = findImagineLink()
+      if (link) { realClick(link); await sleep(1500) }
     }
     // 쿠키 동의 배너가 떠 있으면 닫는다(페이지를 덮어 이후 클릭을 막음).
     dismissCookie()
@@ -328,6 +352,9 @@
 
     report('업로드 완료 대기 중…')
     await waitSubmitReady(120000)
+    // 제출 직전 기존 영상 src 를 baseline 으로 — 이전 결과/잔재를 새 영상으로 오인하지 않도록.
+    const baseline = videoSrcSet()
+    log('baseline videos: ' + baseline.size)
     if (!submitEnter()) clickSend()
     await sleep(2000)
     // Enter 가 전송 안됐으면(입력창에 글자 남아있음) 전송 버튼 클릭으로 재시도.
@@ -339,14 +366,21 @@
       await sleep(1500)
       if (i % 4 === 0) await throwIfCanceled(job.id)
       if (i > 0 && i % 16 === 0) report('영상 생성 대기 중… (' + Math.round(i * 1.5) + '초)')
-      const f = foundVideo()
-      if (f) { const s1 = f.s; await sleep(3000); const f2 = foundVideo(); if (f2 && f2.s === s1) { res = f2; break } }
+      const f = foundVideo(baseline)
+      // src 가 3초간 안정적으로 유지될 때만 채택(생성 도중 바뀌는 src 걸러냄).
+      if (f) { const s1 = f.s; await sleep(3000); const f2 = foundVideo(baseline); if (f2 && f2.s === s1) { res = f2; break } }
     }
-    if (!res) throw new Error('시간 초과 — 생성 영상을 찾지 못함')
+    if (!res) {
+      log('현재 video 들: ' + JSON.stringify(qsa('video').map(vidSrc).filter(Boolean).map((s) => s.slice(0, 60))))
+      throw new Error('시간 초과 — 생성 영상을 찾지 못함')
+    }
+    log('가져올 새 영상 src: ' + (res.s || '').slice(0, 90))
 
     if (QUALITY === '480p-upscale') {
       report('480p → 720p 업스케일 중…')
-      if (await clickUpscale()) { await waitUpscale(180000); await sleep(1500); const f3 = foundVideo(); if (f3) res = f3 }
+      // 업스케일 결과는 또 새 src 로 나타나므로, 현재(480p 포함) 전체를 baseline 으로 잡고 그 뒤 새것만 채택.
+      const upBase = videoSrcSet()
+      if (await clickUpscale()) { await waitUpscale(180000); await sleep(1500); const f3 = foundVideo(upBase); if (f3) { res = f3; log('업스케일 영상 src: ' + (f3.s || '').slice(0, 90)) } }
     }
 
     report('영상 가져오는 중…')

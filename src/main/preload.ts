@@ -46,6 +46,7 @@ const api: ElectronAPI = {
   bridge: {
     getInfo: () => ipcRenderer.invoke(IPC.bridgeInfo),
     list: () => ipcRenderer.invoke(IPC.bridgeList),
+    importImage: (payload) => ipcRenderer.invoke(IPC.bridgeImport, payload),
     clear: () => ipcRenderer.invoke(IPC.bridgeClear),
     remove: (ids) => ipcRenderer.invoke(IPC.bridgeRemove, ids),
     generate: (source, prompt, referenceImages, aspect) =>
