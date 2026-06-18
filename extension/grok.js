@@ -42,6 +42,61 @@
     return new File([arr], name + '.' + (mime.split('/')[1] || 'png'), { type: mime })
   }
 
+  // ── 새 Grok Imagine UI(2026-06) 대응 ──────────────────────────────────────
+  // 변경점: 모드/해상도/길이/종횡비 인라인 칩이 사라지고, [업로드][동영상 만들기][설정]
+  // 아이콘 버튼만 남음. 해상도(480p/720p)·길이(6s/10s)·종횡비(16:9 등)는 "설정"
+  // (button[aria-label="설정"]) 클릭 시 열리는 팝오버 안으로 이동. 제출 버튼은
+  // aria-label="동영상 만들기". 쿠키 동의 배너가 페이지를 덮어 클릭을 막기도 함.
+
+  // 쿠키 동의 배너("환경 설정 센터")가 떠 있으면 닫는다.
+  function dismissCookie() {
+    const ok = ['모두 허용', '모두 동의', '전체 허용', 'Allow all', 'Accept all', 'Accept All', 'I Agree', '동의함', '동의']
+    for (const b of qsa('button')) {
+      const t = (b.innerText || '').trim()
+      if (t && ok.some((a) => t === a || t.includes(a))) { b.click(); log('쿠키 배너 닫음: ' + t); return true }
+    }
+    return false
+  }
+  // 종횡비/해상도/길이가 들어있는 "설정" 팝오버를 찾는다(쿠키 등 다른 dialog 와 구분).
+  function findSettings() {
+    for (const el of qsa('[data-radix-popper-content-wrapper], [role="dialog"]')) {
+      if (el.querySelector('button[aria-label="16:9"], button[aria-label="9:16"], button[aria-label="1:1"]')) return el
+      if (/종횡비|해상도|동영상 길이|Aspect|Resolution|Duration/.test(el.innerText || '')) return el
+    }
+    return null
+  }
+  async function openSettings() {
+    let p = findSettings(); if (p) return p
+    const trig = qs('button[aria-label="설정"], button[aria-label="Settings"]')
+    if (!trig) { log('설정 버튼 없음'); return null }
+    realClick(trig)
+    for (let i = 0; i < 25; i++) { await sleep(120); p = findSettings(); if (p) { await sleep(250); return p } }
+    log('설정 팝오버 안 열림'); return null
+  }
+  const closeSettings = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  function clickPanelChip(panel, label) {
+    for (const b of panel.querySelectorAll('button')) {
+      const t = (b.innerText || '').trim(), al = b.getAttribute('aria-label') || ''
+      if (t === label || al === label) { realClick(b); log('설정 칩: ' + label); return true }
+    }
+    return false
+  }
+  // 새 UI: 설정 팝오버를 한 번 열어 종횡비/해상도/길이를 모두 적용. 하나도 못찾으면 false → 옛 UI 폴백.
+  async function applySettingsNewUI(ASPECT, RES_CHIP, DURATION) {
+    const panel = await openSettings(); if (!panel) return false
+    const RAT = { '16:9': ['16:9', '16∶9'], '9:16': ['9:16', '9∶16'], '1:1': ['1:1', '1∶1'], '4:3': ['4:3'], '3:4': ['3:4'] }
+    const aspLabels = RAT[ASPECT] || [ASPECT]
+    let any = false
+    for (const l of aspLabels) { if (clickPanelChip(panel, l)) { any = true; break } }
+    await sleep(150)
+    if (clickPanelChip(panel, RES_CHIP)) any = true
+    await sleep(150)
+    if (clickPanelChip(panel, DURATION + 's')) any = true
+    await sleep(150)
+    closeSettings(); await sleep(150)
+    return any
+  }
+
   async function switchVideoMode() {
     const form = getForm(); if (!form) return false
     for (const b of form.querySelectorAll('button')) {
@@ -52,6 +107,8 @@
         return true
       }
     }
+    // 새 UI: 비디오 칩이 사라지고 제출 버튼이 "동영상 만들기"로 모드를 드러냄 → 이미 비디오 모드로 간주.
+    if (qs('button[aria-label="동영상 만들기"]')) { log('새 UI — 동영상 만들기 버튼 존재, 비디오 모드로 간주'); return true }
     return false
   }
   const chipActive = (b) => b.getAttribute('aria-checked') === 'true' || b.getAttribute('aria-pressed') === 'true' || b.getAttribute('data-state') === 'on' || b.getAttribute('aria-selected') === 'true'
@@ -114,11 +171,14 @@
     await sleep(200)
     return (input.textContent || '').length > 0
   }
+  // 새 UI: 제출 버튼이 type="submit" 가 아니라 aria-label="동영상 만들기" 기반. 옛 셀렉터와 OR.
+  const SUBMIT_SEL = 'form button[type="submit"], button[aria-label="동영상 만들기"], button[aria-label="이미지 만들기"], button[aria-label="만들기"]'
+  const submitBtn = () => qs(SUBMIT_SEL)
   async function waitSubmitReady(timeout) {
     const start = Date.now()
     while (Date.now() - start < timeout) {
-      const btn = qs('form button[type="submit"]')
-      if (btn && !btn.disabled) return true
+      const btn = submitBtn()
+      if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') return true
       await sleep(100)
     }
     return false
@@ -133,10 +193,11 @@
     return true
   }
   function clickSend() {
+    // 새 UI: "동영상 만들기" 우선, 옛 라벨(제출/Send) 폴백.
+    const b = qs('button[aria-label="동영상 만들기"], button[aria-label="이미지 만들기"], button[aria-label="만들기"], button[aria-label="제출"], button[aria-label="Send"], button[aria-label="Submit"], button[data-testid="send-button"]')
+    if (b) { realClick(b); return true }
     const c = qs('form div.absolute.right-2.bottom-0')
-    if (c) { const b = c.querySelector('button'); if (b) { b.click(); return true } }
-    const b = qs('button[aria-label="제출"], button[aria-label="Send"], button[aria-label="Submit"], button[data-testid="send-button"]')
-    if (b) { b.click(); return true }
+    if (c) { const x = c.querySelector('button'); if (x) { x.click(); return true } }
     return false
   }
   function foundVideo() {
@@ -145,6 +206,14 @@
     return null
   }
   async function clickUpscale() {
+    // 새 UI: 결과 우측에 업스케일 버튼이 직접 노출되면 메뉴 안 거치고 바로 클릭(버튼 활성까지 최대 30s 대기).
+    const d0 = Date.now()
+    while (Date.now() - d0 < 30000) {
+      const dbtn = qs('button[aria-label="업스케일"], button[aria-label="Upscale"]')
+      if (dbtn && !dbtn.hasAttribute('disabled')) { realClick(dbtn); log('업스케일(직접 버튼)'); return true }
+      if (qsa('button[aria-label="추가 옵션"], button[aria-label="More options"]').length) break
+      await sleep(500)
+    }
     let more = null; const start = Date.now()
     while (Date.now() - start < 30000) {
       const byLabel = qsa('button[aria-label="추가 옵션"], button[aria-label="More options"]')
@@ -204,6 +273,8 @@
       realClick(link)
       await sleep(1500)
     }
+    // 쿠키 동의 배너가 떠 있으면 닫는다(페이지를 덮어 이후 클릭을 막음).
+    dismissCookie()
     // 새 컴포저(입력창) 준비 대기 — 이전 대화/영상이 사라지고 깨끗해질 때까지
     let input = getInput(), t = 0
     while (!input && t++ < 24) { await sleep(300); input = getInput() }
@@ -238,9 +309,12 @@
     await sleep(300)
 
     report('종횡비/화질/길이 설정 중…')
-    await setAspect(ASPECT)
-    await setChip(RES_CHIP)
-    await setChip(DURATION + 's')
+    // 새 UI: "설정" 팝오버 안에서 일괄 적용. 하나도 못찾으면 옛 UI(인라인 칩/드롭다운) 폴백.
+    if (!(await applySettingsNewUI(ASPECT, RES_CHIP, DURATION))) {
+      await setAspect(ASPECT)
+      await setChip(RES_CHIP)
+      await setChip(DURATION + 's')
+    }
 
     if (IMG) {
       report('이미지 업로드 중…')
@@ -256,7 +330,8 @@
     await waitSubmitReady(120000)
     if (!submitEnter()) clickSend()
     await sleep(2000)
-    if (qs('form button[type="submit"]') && !qs('form button[type="submit"]').disabled) clickSend()
+    // Enter 가 전송 안됐으면(입력창에 글자 남아있음) 전송 버튼 클릭으로 재시도.
+    if ((getInput()?.textContent || '').trim() && PROMPT) clickSend()
     report('전송됨 · 영상 생성 대기 중…')
 
     let res = null
