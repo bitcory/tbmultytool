@@ -1,6 +1,8 @@
 import { spawn } from 'child_process'
 import ffmpegStatic from 'ffmpeg-static'
-import ffprobeStatic from 'ffprobe-static'
+// ffprobe 는 플랫폼 네이티브 바이너리를 주는 @ffprobe-installer 사용.
+// (ffprobe-static 은 mac arm64 슬롯에도 x86_64 를 넣어 앱이 "Intel 포함"으로 잡히는 문제가 있어 교체)
+import ffprobeInstaller from '@ffprobe-installer/ffprobe'
 
 // 패키징(asar) 시 정적 바이너리는 app.asar.unpacked 로 풀려야 실행 가능.
 // ffmpeg-static/ffprobe-static 이 주는 경로의 app.asar 를 unpacked 로 보정한다.
@@ -10,7 +12,7 @@ function unpacked(p: string | null | undefined): string | undefined {
 
 // 번들된 정적 바이너리 우선, 없으면 PATH의 ffmpeg/ffprobe 사용
 export const FFMPEG = unpacked(ffmpegStatic as unknown as string) || 'ffmpeg'
-export const FFPROBE = unpacked(ffprobeStatic?.path) || 'ffprobe'
+export const FFPROBE = unpacked(ffprobeInstaller?.path) || 'ffprobe'
 
 /** ffmpeg/ffprobe 실행 (stderr 수집, 실패 시 throw) */
 export function run(bin: string, args: string[]): Promise<string> {

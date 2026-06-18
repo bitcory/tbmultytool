@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Home as HomeIcon, Clapperboard, Film, Video, Music, Wand2, LayoutGrid, GalleryHorizontalEnd, ScrollText, Settings as SettingsIcon } from 'lucide-react'
+import { Home as HomeIcon, Clapperboard, Film, Video, Music, Wand2, LayoutGrid, GalleryHorizontalEnd, ScrollText, Settings as SettingsIcon, PenLine, Scissors } from 'lucide-react'
 import { useStore } from './store'
 import Home from './pages/Home'
 import Wizard from './pages/Wizard'
@@ -9,15 +9,19 @@ import GalleryGrid from './pages/GalleryGrid'
 import ImageGen from './pages/ImageGen'
 import VideoGen from './pages/VideoGen'
 import ScrollVideo from './pages/ScrollVideo'
+import Frames from './pages/Frames'
 import MusicGen from './pages/MusicGen'
+import Blog from './pages/Blog'
 
 const NAV = [
   { id: 'home', label: '홈', Icon: HomeIcon },
   { id: 'imagegen', label: '이미지 생성기', Icon: Wand2 },
   { id: 'videogen', label: '비디오 생성기', Icon: Video },
   { id: 'scrollvideo', label: '스크롤영상 만들기', Icon: ScrollText },
+  { id: 'frames', label: '프레임 추출기', Icon: Scissors },
   { id: 'musicgen', label: '음악 만들기', Icon: Music },
   { id: 'cardnews', label: '카드뉴스 만들기', Icon: LayoutGrid },
+  { id: 'blog', label: '블로그 자동화', Icon: PenLine },
   { id: 'wizard', label: '멀티 영상 만들기', Icon: Clapperboard },
   { id: 'gallerygrid', label: '갤러리', Icon: GalleryHorizontalEnd },
   { id: 'gallery', label: '설정', Icon: SettingsIcon }
@@ -63,10 +67,14 @@ export default function App() {
           <VideoGen />
         ) : view === 'scrollvideo' ? (
           <ScrollVideo />
+        ) : view === 'frames' ? (
+          <Frames />
         ) : view === 'musicgen' ? (
           <MusicGen />
         ) : view === 'cardnews' ? (
           <CardNews />
+        ) : view === 'blog' ? (
+          <Blog />
         ) : view === 'wizard' ? (
           <Wizard />
         ) : view === 'gallery' ? (

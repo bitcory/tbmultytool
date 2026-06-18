@@ -54,8 +54,17 @@ export interface Project {
   createdAt: string
 }
 
-/** 확장으로부터 가져온 이미지/영상의 출처 ('scroll' = 앱 내부 스크롤영상 생성기) */
-export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'other'
+/** 확장으로부터 가져온 이미지/영상의 출처 ('scroll' = 앱 내부 스크롤영상 생성기, 'tistory' = 블로그 발행) */
+export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'tistory' | 'other'
+
+/** 블로그 발행 작업 페이로드 (앱→블로그 확장). 본문은 text/image 블록 순서 그대로. */
+export interface BlogPostPayload {
+  platform: 'tistory'
+  title: string
+  tags: string[]
+  thumbDataUrl?: string // 대표이미지(썸네일)
+  blocks: Array<{ type: 'text'; text: string } | { type: 'image'; dataUrl: string }>
+}
 
 /** 사각 영역(픽셀) — 스크롤영상 레이아웃 박스 */
 export interface ScrollRect {
@@ -138,13 +147,14 @@ export interface VideoGenSettings {
 export interface BridgeJob {
   id: string
   source: ImageSource
-  kind?: 'image' | 'text' // 기본 image. text 면 ChatGPT 텍스트 응답(코드블록)을 회수
+  kind?: 'image' | 'text' | 'blog' // 기본 image. text=ChatGPT 텍스트 회수, blog=티스토리 발행
   prompt: string
   aspect?: string // '16:9' 등
   referenceImages?: string[] // I2I 참조 이미지 dataURL 배열
   imageDataUrl?: string // Grok 이미지→영상: 입력 이미지 dataURL
   videoSettings?: VideoGenSettings // Grok: 길이/해상도/비율
   musicPayload?: MusicGenPayload // Suno: 음악 생성 입력
+  blogPayload?: BlogPostPayload // blog 잡: 티스토리에 발행할 제목/본문/이미지/태그
 }
 
 /** 확장 작업 완료 결과 (job-status done 보고에 실려옴) */
@@ -190,6 +200,9 @@ export const IPC = {
   pickImage: 'fs:pickImage',
   readImage: 'fs:readImage',
   saveFileAs: 'fs:saveFileAs', // 로컬 파일을 사용자가 고른 위치로 저장(다른 이름으로 저장)
+  framesProbe: 'frames:probe', // 영상 길이/해상도 조회
+  framesExtract: 'frames:extract', // 특정 시각 프레임을 고화질 PNG 로 추출
+  framesPrepare: 'frames:prepare', // dataURL 영상 → 임시 파일 경로(경로를 못 잡는 폴백)
   bridgeInfo: 'bridge:info',
   bridgeList: 'bridge:list',
   bridgeClear: 'bridge:clear',
@@ -201,6 +214,7 @@ export const IPC = {
   bridgeGenerateScroll: 'bridge:generateScroll', // 앱 내부 스크롤영상 생성(ffmpeg, 확장 불필요)
   bridgeGenerateMusic: 'bridge:generateMusic', // SUNO 음악 생성 자동화
   bridgeGenerateBatch: 'bridge:generateBatch', // 멀티 프롬프트 배치 이미지 생성(T2I/I2I)
+  bridgeGenerateBlog: 'bridge:generateBlog', // 티스토리 블로그 자동 발행(확장이 에디터에 주입)
   bridgeCancel: 'bridge:cancel', // 진행/대기 중인 확장 생성 작업 전체 취소
   bridgeExportZip: 'bridge:exportZip', // 이미지들을 순서대로 zip 으로 저장
   progress: 'progress', // 이벤트 채널
@@ -240,6 +254,18 @@ export interface ElectronAPI {
     /** 로컬 파일을 사용자가 고른 위치로 저장(저장 다이얼로그). 취소 시 ok:false */
     saveFileAs: (srcPath: string, defaultName: string) => Promise<{ ok: boolean; path?: string }>
   }
+  /** 프레임 추출기 (ffmpeg, 확장 불필요) */
+  frames: {
+    /** 영상 길이(초)/해상도(px) */
+    probe: (filePath: string) => Promise<{ duration: number; width: number; height: number }>
+    /** timeSec 위치의 프레임을 원본 해상도 PNG 로 추출 (임시 파일 경로 + 미리보기 dataURL) */
+    extract: (
+      filePath: string,
+      timeSec: number
+    ) => Promise<{ path: string; dataUrl: string; timeSec: number }>
+    /** 파일 경로를 못 잡는 경우 dataURL 영상을 임시 파일로 저장하고 경로를 받는다 */
+    prepare: (dataUrl: string) => Promise<string>
+  }
   /** 크롬 확장 ↔ 앱 이미지 브릿지 */
   bridge: {
     /** 로컬 수신 서버 정보(포트/폴더) */
@@ -259,6 +285,8 @@ export interface ElectronAPI {
     ) => Promise<BridgeJobResult>
     /** ChatGPT 텍스트 생성: 프롬프트 전송 → 응답 코드블록 내용 회수 (카드뉴스 자동화용) */
     generateText: (prompt: string) => Promise<BridgeJobResult>
+    /** 티스토리 블로그 발행: 제목/본문/이미지/태그를 블로그 확장이 에디터에 자동 주입 (공개 발행 직전까지) */
+    generateBlog: (payload: BlogPostPayload) => Promise<BridgeJobResult>
     /** Grok 으로 이미지→영상 자동 생성·회수 (실험적). settings: 길이/해상도/비율 */
     generateVideo: (
       prompt: string,

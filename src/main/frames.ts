@@ -1,0 +1,73 @@
+// 고화질 프레임 추출 — ffmpeg 로 영상의 특정 시각 프레임을 원본 해상도 PNG(무손실)로 뽑는다.
+import { app } from 'electron'
+import { promises as fs } from 'fs'
+import path from 'path'
+import { FFMPEG, FFPROBE, run, getDuration } from './ffmpeg'
+
+// 추출/임시 파일이 떨어지는 폴더 (앱 임시 경로 하위)
+const framesDir = (): string => path.join(app.getPath('temp'), 'avs-frames')
+
+/** 영상 정보: 길이(초) + 프레임 크기(px) */
+export async function probeVideo(
+  file: string
+): Promise<{ duration: number; width: number; height: number }> {
+  const duration = await getDuration(file)
+  let width = 0
+  let height = 0
+  try {
+    const out = await run(FFPROBE, [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0:s=x',
+      file
+    ])
+    const [w, h] = out.trim().split('x')
+    width = parseInt(w, 10) || 0
+    height = parseInt(h, 10) || 0
+  } catch {
+    /* 크기를 못 읽어도 길이만으로 진행 */
+  }
+  return { duration, width, height }
+}
+
+/**
+ * timeSec 위치의 프레임 한 장을 원본 해상도 PNG 로 추출.
+ * 빠른 키프레임 시크(-ss 입력 앞) + 정밀 디코드(-ss 입력 뒤) 하이브리드로
+ * 긴 영상에서도 빠르면서 프레임 정확도를 유지한다.
+ */
+export async function extractFrame(
+  file: string,
+  timeSec: number
+): Promise<{ path: string; dataUrl: string; timeSec: number }> {
+  const dir = framesDir()
+  await fs.mkdir(dir, { recursive: true })
+  const t = Math.max(0, timeSec)
+  const pre = Math.max(0, t - 5) // 정확지점 5초 전 키프레임으로 빠르게 점프
+  const post = t - pre // 거기서부터 정밀 디코드
+  const stamp = `${Math.round(t * 1000)}_${Date.now()}`
+  const out = path.join(dir, `frame_${stamp}.png`)
+  await run(FFMPEG, [
+    '-ss', String(pre),
+    '-i', file,
+    '-ss', String(post),
+    '-frames:v', '1',
+    '-q:v', '1',
+    '-an', '-sn',
+    '-y', out
+  ])
+  const buf = await fs.readFile(out)
+  return { path: out, dataUrl: `data:image/png;base64,${buf.toString('base64')}`, timeSec: t }
+}
+
+/** dataURL 영상을 임시 파일로 떨어뜨려 실제 경로를 돌려준다 (파일 경로를 못 잡는 폴백용) */
+export async function materializeVideo(dataUrl: string): Promise<string> {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
+  if (!m) throw new Error('잘못된 영상 데이터입니다.')
+  const ext = m[1].includes('webm') ? 'webm' : m[1].includes('quicktime') ? 'mov' : 'mp4'
+  const dir = framesDir()
+  await fs.mkdir(dir, { recursive: true })
+  const out = path.join(dir, `src_${Date.now()}.${ext}`)
+  await fs.writeFile(out, Buffer.from(m[2], 'base64'))
+  return out
+}

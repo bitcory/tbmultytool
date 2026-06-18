@@ -37,6 +37,12 @@ const api: ElectronAPI = {
     saveFileAs: (srcPath: string, defaultName: string) =>
       ipcRenderer.invoke(IPC.saveFileAs, srcPath, defaultName)
   },
+  frames: {
+    probe: (filePath: string) => ipcRenderer.invoke(IPC.framesProbe, filePath),
+    extract: (filePath: string, timeSec: number) =>
+      ipcRenderer.invoke(IPC.framesExtract, filePath, timeSec),
+    prepare: (dataUrl: string) => ipcRenderer.invoke(IPC.framesPrepare, dataUrl)
+  },
   bridge: {
     getInfo: () => ipcRenderer.invoke(IPC.bridgeInfo),
     list: () => ipcRenderer.invoke(IPC.bridgeList),
@@ -45,6 +51,7 @@ const api: ElectronAPI = {
     generate: (source, prompt, referenceImages, aspect) =>
       ipcRenderer.invoke(IPC.bridgeGenerate, source, prompt, referenceImages, aspect),
     generateText: (prompt) => ipcRenderer.invoke(IPC.bridgeGenerateText, prompt),
+    generateBlog: (payload) => ipcRenderer.invoke(IPC.bridgeGenerateBlog, payload),
     generateVideo: (prompt, imageDataUrl, settings) =>
       ipcRenderer.invoke(IPC.bridgeGenerateVideo, prompt, imageDataUrl, settings),
     generateScroll: (spec) => ipcRenderer.invoke(IPC.bridgeGenerateScroll, spec),

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ScrollText, Sparkles, Loader2, X, Trash2, RotateCcw, AlignLeft, ImagePlus, ChevronDown, Type, Video as VideoIcon, Image as ImageIcon, Download, Pipette, RefreshCw, Bookmark, BookmarkX } from 'lucide-react'
+import { ScrollText, Sparkles, Loader2, X, Trash2, RotateCcw, AlignLeft, ImagePlus, Type, Video as VideoIcon, Image as ImageIcon, Download, Pipette, RefreshCw, Bookmark, BookmarkX, Home, FolderOpen } from 'lucide-react'
 import type { ImportedImage } from '@shared/types'
 import {
   autoLayout,
@@ -285,54 +285,15 @@ function Slider({
 type DragMode = 'move' | 'resize'
 type DragTarget = 'video' | 'image' | 'section' | 'title' | 'safeTop'
 
-// 접을 수 있는 섹션
-function Section({
-  title,
-  defaultOpen = true,
-  children
-}: {
-  title: string
-  defaultOpen?: boolean
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div style={{ borderBottom: '1px solid var(--border)' }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'none',
-          border: 'none',
-          color: 'var(--text)',
-          cursor: 'pointer',
-          padding: '13px 2px',
-          font: 'inherit',
-          fontWeight: 700,
-          fontSize: 13
-        }}
-      >
-        <span>{title}</span>
-        <ChevronDown
-          size={16}
-          style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', opacity: 0.55 }}
-        />
-      </button>
-      {open && <div style={{ paddingBottom: 14 }}>{children}</div>}
-    </div>
-  )
-}
+type Sel = 'home' | 'video' | 'image' | 'section' | 'title'
 
-type Sel = 'video' | 'image' | 'section' | 'title'
-
+// 상단 탭 순서: 홈 → 제목 → 영상 → 이미지 → 텍스트 (Object.keys 삽입 순서대로 렌더)
 const SEL_META: Record<Sel, { label: string; Icon: typeof Type }> = {
-  section: { label: '텍스트', Icon: AlignLeft },
+  home: { label: '홈', Icon: Home },
   title: { label: '제목', Icon: Type },
   video: { label: '영상', Icon: VideoIcon },
-  image: { label: '이미지', Icon: ImageIcon }
+  image: { label: '이미지', Icon: ImageIcon },
+  section: { label: '텍스트', Icon: AlignLeft }
 }
 
 export default function ScrollVideo() {
@@ -349,13 +310,15 @@ export default function ScrollVideo() {
   } | null>(null)
   const [image, setImage] = useState<{ dataUrl: string } | null>(null)
   const [mediaAR, setMediaAR] = useState(16 / 9) // 상단 미디어 가로:세로 비율
-  const [selected, setSelected] = useState<Sel>('section') // 미리보기에서 선택된 요소(맥락 설정)
+  const [selected, setSelected] = useState<Sel>('home') // 상단 탭(편집 패널)
+  const [picked, setPicked] = useState<Sel | null>(null) // 미리보기에서 클릭해 선택한 요소(녹색 테두리)
   const [tmpl, setTmpl] = useState<'default' | 'split2' | 'split3'>('default') // 현재 빠른배치 모드
   const [layout, setLayout] = useState<ScrollLayout>(() => autoLayout('9:16', false, false))
   const [generating, setGenerating] = useState(false)
   const [msg, setMsg] = useState('')
   const [videos, setVideos] = useState<ImportedImage[]>([])
   const [port, setPort] = useState(0)
+  const [saveDir, setSaveDir] = useState('') // 생성된 스크롤영상이 저장되는 폴더
   const pending = useRef(false)
   // 사용자가 미디어를 직접 바꿨는지 — 복원(비동기 파일읽기)이 새 영상을 덮어쓰지 않게 가드
   const mediaTouched = useRef(false)
@@ -365,7 +328,7 @@ export default function ScrollVideo() {
   usePersistedForm(
     'scrollvideo',
     {
-      aspect, title, subtitle, text, image, mediaAR, tmpl, layout, selected,
+      aspect, title, subtitle, text, image, mediaAR, tmpl, layout,
       media: media ? { path: media.path, dataUrl: media.dataUrl, isVideo: media.isVideo } : null
     },
     (v) => {
@@ -377,7 +340,7 @@ export default function ScrollVideo() {
       if (typeof v.mediaAR === 'number') setMediaAR(v.mediaAR)
       if (v.tmpl) setTmpl(v.tmpl as 'default' | 'split2' | 'split3')
       if (v.layout) setLayout(v.layout as ScrollLayout)
-      if (v.selected) setSelected(v.selected as Sel)
+      // 진입 시 항상 홈 탭에서 시작 (저장된 탭은 복원하지 않음)
       const sm = v.media as { path?: string; dataUrl?: string; isVideo: boolean } | null
       if (sm) {
         if (sm.dataUrl) {
@@ -420,7 +383,13 @@ export default function ScrollVideo() {
   }, [])
 
   useEffect(() => {
-    window.electronAPI.bridge.getInfo().then((i) => setPort(i.port)).catch(() => {})
+    window.electronAPI.bridge.getInfo().then((i) => { setPort(i.port); setSaveDir(i.dir) }).catch(() => {})
+  }, [])
+
+  // 페이지 진입(마운트) 시 항상 홈 탭에서 시작
+  useEffect(() => {
+    setSelected('home')
+    setPicked(null)
   }, [])
 
   // 갤러리(디스크)를 신뢰 소스로 "오늘 생성한 스크롤영상"만 표시 (source='scroll').
@@ -450,6 +419,63 @@ export default function ScrollVideo() {
     setLayout((L) => rescaleLayout(L, a))
   }
 
+  // 영상을 처음 올렸을 때의 '기본' 배치: 제목 아래에 좌우 여백을 두고 4:3 창,
+  // 영상은 창을 꽉 채우고 가장자리를 자름(cover). 섹션은 그 아래로 이어진다.
+  // 업로드 시점과 '4:3 기본' 버튼에서 공통으로 쓴다 → 영상 크기와 무관하게 항상 같은 프레임.
+  const defaultVideoLayout = (L: ScrollLayout): Partial<ScrollLayout> => {
+    const { W, H } = L
+    const margin = Math.round(0.028 * W)
+    const gap = Math.round(0.018 * H)
+    const contentW = W - 2 * margin
+    const hasT = title.trim() !== ''
+    const hasS = subtitle.trim() !== ''
+    const blockH =
+      Math.ceil(L.titleSize * 0.22) * 2 +
+      (hasT ? Math.round(L.titleSize * 1.25) : 0) +
+      (hasS ? Math.round(L.subtitleSize * 1.4) + (hasT ? Math.round(L.titleGap ?? L.subtitleSize * 0.55) : 0) : 0)
+    const top = hasT || hasS ? L.titleY + blockH + gap : margin
+    const bottom = H - margin
+    // 영상 = 4:3 (전체폭). 너무 크면 높이 한계(0.72H)로 줄이고 폭도 4:3에 맞춰 가로 중앙.
+    let vw = contentW
+    let vh = Math.round((vw * 3) / 4)
+    const maxVH = Math.round(0.72 * H)
+    if (vh > maxVH) {
+      vh = maxVH
+      vw = Math.round((vh * 4) / 3)
+    }
+    const vX = Math.round((W - vw) / 2)
+    const vY = top
+    const base: Partial<ScrollLayout> = {
+      hasMedia: true,
+      videoFit: 'cover',
+      videoZoom: 1,
+      vPadX: 0,
+      vPadY: 0,
+      video: { x: vX, y: vY, w: vw, h: vh }
+    }
+    // 이미지가 있으면 영상 아래에 '16:9 절반' 크기로 끼우고 텍스트를 그 아래로,
+    // 없으면 텍스트를 영상 바로 아래로 — 항상 영상→(이미지)→텍스트 세로 스택.
+    if (L.hasImage) {
+      // 이미지 = 16:4.5 (16:9에서 세로너비 절반) — 영상과 같은 전체폭, 높이만 절반.
+      const iw = contentW
+      const ih = Math.round((iw * 9) / 32)
+      const iY = vY + vh + gap
+      const iX = margin
+      const sY = iY + ih + gap
+      return {
+        ...base,
+        imageZoom: 1,
+        image: { x: iX, y: iY, w: iw, h: ih },
+        section: { x: margin, y: sY, w: contentW, h: Math.max(160, bottom - sY) }
+      }
+    }
+    const secY = vY + vh + gap
+    return {
+      ...base,
+      section: { x: margin, y: secY, w: contentW, h: Math.max(200, bottom - secY) }
+    }
+  }
+
   // 비율 변경: 편집값 보존하며 비례 변환 (위에 정의됨) — 배치 통합 함수
   // 'default' = 영상(원본비율) + 텍스트, 'split2/3' = 가용영역 균등 분할.
   // 미디어를 나중에 첨부해도 같은 모드를 다시 적용해 배치가 어긋나지 않게 한다.
@@ -475,45 +501,34 @@ export default function ScrollVideo() {
       const avail = bottom - top
       const mk = (y: number, h: number): Box => ({ x: margin, y, w: contentW, h: Math.round(h) })
       const hasMedia = opts?.hasMedia ?? L.hasMedia
-      const vAR = opts?.vAR ?? mediaAR
 
       if (kind === 'split2') {
         const each = (avail - gap) / 2
         return { ...L, hasMedia: true, hasImage: false, video: mk(top, each), section: mk(top + each + gap, each) }
       }
       if (kind === 'split3') {
-        // 3분할 기본 프리셋: 제목 90 / 부제목 60 / 간격 5, 영상·이미지는 원본 비율,
-        // 텍스트·이미지 테두리 없음. 영상→이미지→텍스트(나머지) 세로 스택.
-        // 빠른배치 드롭다운에서 고를 때만(applyDefaults) 스타일을 기본값으로 리셋하고,
-        // 이미지 첨부/제목 토글로 인한 재배치 때는 사용자가 조정한 값을 보존한다.
+        // 3분할: 가이드(9:16) 비율에 맞춤 —
+        //  상단 데드존(더 내림) · 제목/부제목 밴드 · 영상(4:3)+이미지(16:9) 미디어 밴드 · 텍스트 밴드 · 하단 데드존.
+        // 빠른배치 드롭다운에서 고를 때만(useDef) 폰트·정렬 등 스타일도 기본값으로 리셋한다.
         const useDef = !!opts?.applyDefaults
-        const tSize = useDef ? 90 : L.titleSize
-        const sSize = useDef ? 60 : L.subtitleSize
-        const tGap = useDef ? 5 : (L.titleGap ?? Math.round(L.subtitleSize * 0.55))
-        const blockH3 =
-          Math.ceil(tSize * 0.22) * 2 +
-          (hasT ? Math.round(tSize * 1.25) : 0) +
-          (hasS ? Math.round(sSize * 1.4) + (hasT ? tGap : 0) : 0)
-        const top3 = hasT || hasS ? L.titleY + blockH3 + gap : margin
-        const fit = useDef ? 'contain' : L.videoFit
-        const imgAR = opts?.iAR ?? (L.image.h > 0 ? L.image.w / L.image.h : 1)
-        // 영상·이미지·텍스트 세 박스가 항상 화면 안에 들어가도록 높이를 배분한다.
-        // 두 미디어가 원본비율로 너무 크면 비례 축소하고, 텍스트창 최소 높이를 보장 →
-        // 텍스트창이 아래로 밀려 잘리는 문제 방지.
-        const usable = Math.max(300, bottom - top3 - 2 * gap) // 세 박스가 나눠 쓸 세로 공간
-        const minSec = Math.min(Math.round(Math.max(220, usable * 0.22)), Math.round(usable * 0.6))
-        const maxMedia = Math.max(120, usable - minSec) // 영상+이미지가 차지할 수 있는 최대 합
-        let vh = fit === 'cover' ? L.video.h : Math.round(contentW / vAR)
-        let ih = Math.round(contentW / imgAR)
-        if (vh + ih > maxMedia && vh + ih > 0) {
-          const k = maxMedia / (vh + ih)
-          vh = Math.max(80, Math.round(vh * k))
-          ih = Math.max(60, Math.round(ih * k))
-        }
-        const vY = top3
-        const iY = vY + vh + gap
-        const sY = iY + ih + gap
-        const sH = Math.max(minSec, bottom - sY)
+        const g = Math.round(0.012 * H) // 박스 사이 간격
+        // 실측(이미지 #5, 9:16) 비율: 데드존 → 제목 → 영상(전체폭 4:3) → 이미지(16:4.5) → 텍스트
+        const safe = Math.round(0.135 * H) // 상단 데드존(노란 밴드)
+        const titleTop = Math.round(0.15 * H) // 제목 윗선(데드존 바로 아래)
+        // 영상: 전체폭 4:3 (가장 큰 요소)
+        const vX = margin
+        const vw = contentW
+        const vY = Math.round(0.275 * H) // 영상 윗선(제목 밴드 아래)
+        const vh = Math.round((vw * 3) / 4)
+        // 이미지: 16:4.5(16:9 세로 절반) 전체폭, 영상 아래
+        const iX = margin
+        const iw = contentW
+        const ih = Math.round((iw * 9) / 32)
+        const iY = vY + vh + g
+        // 텍스트: 이미지 아래 ~ 화면 맨 아래(하단 데드존 무시)
+        const sY = iY + ih + g
+        const sBottom = H - margin
+        const sH = Math.max(120, sBottom - sY)
         const style = useDef
           ? {
               titleFont: 'Paperlogy',
@@ -526,7 +541,6 @@ export default function ScrollVideo() {
               speedPx: 80,
               align: 'left' as Align,
               padX: Math.round(0.03 * W),
-              videoFit: 'contain' as const,
               vPadX: 0,
               vPadY: 0,
               sectionBordered: false,
@@ -538,18 +552,23 @@ export default function ScrollVideo() {
           ...style,
           hasMedia: true,
           hasImage: true,
-          video: mk(vY, vh),
-          image: mk(iY, ih),
-          section: mk(sY, sH)
+          safeTop: safe,
+          titleY: titleTop,
+          videoFit: 'cover',
+          videoZoom: 1,
+          imageZoom: 1,
+          video: { x: vX, y: vY, w: vw, h: vh },
+          image: { x: iX, y: iY, w: iw, h: ih },
+          section: { x: margin, y: sY, w: contentW, h: sH }
         }
       }
-      // default: 영상(원본 비율) + 텍스트 (영상 없으면 텍스트 전용)
+      // default: 영상(16:9 고정 프레임, cover) + 텍스트 (영상 없으면 텍스트 전용)
+      // 업로드한 영상 비율과 무관하게 항상 같은 16:9 창 → 섹션 크기가 들쭉날쭉하지 않음.
       if (hasMedia) {
-        const vh = clamp(Math.round(contentW / vAR), 80, Math.round(0.72 * H))
-        const secY = top + vh + gap
-        return { ...L, hasMedia: true, hasImage: false, video: mk(top, vh), section: mk(secY, Math.max(200, bottom - secY)) }
+        // 이미지 유무는 유지 — defaultVideoLayout 이 이미지가 있으면 영상→이미지→텍스트로 스택.
+        return { ...L, ...defaultVideoLayout(L) }
       }
-      return { ...L, hasMedia: false, hasImage: false, section: mk(top, avail) }
+      return { ...L, hasMedia: false, section: mk(top, avail) }
     })
   }
 
@@ -622,6 +641,7 @@ export default function ScrollVideo() {
     // 먼저 미디어를 반영해 미리보기가 즉시 갱신되게 한다 (비율 계산이 늦어져도 영상이 보임).
     setMedia(m)
     setSelected('video')
+    setPicked('video')
     // 3분할 템플릿 사용 중이면 박스 위치를 그대로 두고 영상만 채운다(위치 고정).
     const useTpl = tmpl === 'split3' && hasSplit3Tpl()
     if (useTpl) setLayout((L) => ({ ...L, hasMedia: true }))
@@ -644,25 +664,29 @@ export default function ScrollVideo() {
     const f = Array.from(files).find((x) => x.type.startsWith('image/'))
     if (!f) return
     const dataUrl = await fileToDataUrl(f)
-    const ar = await getMediaAspect(dataUrl, false)
+    // 먼저 이미지를 반영해 미리보기가 즉시 갱신되게 한다 (비율 계산이 늦어져도 이미지가 보임).
     setImage({ dataUrl })
     setSelected('image')
+    setPicked('image')
     if (tmpl === 'split3') {
-      // 템플릿 사용 중이면 이미지 박스 위치/크기를 그대로 두고 이미지만 채운다.
-      if (hasSplit3Tpl()) setLayout((L) => ({ ...L, hasImage: true }))
-      else arrange('split3', { iAR: ar }) // 기본 3분할이면 새 이미지 비율로 칸 재배치
+      // 3분할: 영상(4:3 고정)·이미지(16:4.5)·텍스트 박스는 이미 프리셋이 잡아둠 → 이미지만 채운다.
+      setLayout((L) => ({ ...L, hasImage: true, imageZoom: 1 }))
     } else {
-      // 기본/2분할에선 이미지를 별도 박스로 띄우고 원본 비율로 크기 맞춤
-      setLayout((L) => ({
-        ...L,
-        hasImage: true,
-        image: { ...L.image, h: clamp(Math.round(L.image.w / ar), 60, L.H - 40) }
-      }))
+      // 기본/2분할: 영상은 4:3 기본 그대로(우선순위), 이미지를 그 아래 16:4.5로 끼우고
+      // 텍스트를 이미지 아래로 — defaultVideoLayout 으로 영상→이미지→텍스트 일괄 재정렬.
+      setLayout((L) => {
+        const L2 = { ...L, hasImage: true }
+        return { ...L2, ...defaultVideoLayout(L2) }
+      })
     }
   }
   const removeImage = () => {
     setImage(null)
-    setLayout((L) => ({ ...L, hasImage: false }))
+    // 이미지를 빼면 영상→텍스트로 다시 정렬(영상 없으면 hasImage만 끔).
+    setLayout((L) => {
+      const L2 = { ...L, hasImage: false }
+      return L2.hasMedia ? { ...L2, ...defaultVideoLayout(L2) } : L2
+    })
   }
 
   const patch = (p: Partial<ScrollLayout>) => setLayout((L) => ({ ...L, ...p }))
@@ -703,7 +727,10 @@ export default function ScrollVideo() {
   ) => {
     e.preventDefault()
     e.stopPropagation()
-    if (target !== 'safeTop') setSelected(target) // 데드존 가이드는 선택 요소로 잡지 않음
+    if (target !== 'safeTop') {
+      setSelected(target) // 데드존 가이드는 선택 요소로 잡지 않음
+      setPicked(target) // 클릭한 요소에 녹색 테두리 표시
+    }
     dragRef.current = {
       target,
       mode,
@@ -852,7 +879,8 @@ export default function ScrollVideo() {
     setSubtitle('')
     setText('')
     setTmpl('default')
-    setSelected('section')
+    setSelected('home')
+    setPicked(null)
     setMediaAR(16 / 9)
     setLayout(autoLayout(aspect, false, false))
     setMsg('')
@@ -869,8 +897,10 @@ export default function ScrollVideo() {
 
   // 스테이지 위 박스 공통 스타일
   const px = (n: number) => `${n * scale}px`
+  // 선택 표시(녹색 테두리)는 미리보기에서 실제로 '선택(클릭)'한 요소에만 그린다.
+  // 빈 캔버스를 누르면 picked=null 이 되어 해제 → 실제 출력 화면처럼 보인다.
   const ring = (t: Sel): string | undefined =>
-    selected === t ? '0 0 0 2px var(--primary)' : undefined
+    picked === t ? '0 0 0 2px var(--primary)' : undefined
   const handleStyle: React.CSSProperties = {
     position: 'absolute',
     right: -7,
@@ -916,6 +946,8 @@ export default function ScrollVideo() {
         </div>
 
         <div
+          // 미리보기 바깥 여백을 눌러도 선택 해제 (요소 박스 클릭은 stopPropagation 되어 안 풀림)
+          onPointerDown={(e) => { if (e.target === e.currentTarget) setPicked(null) }}
           style={{
             display: 'flex',
             justifyContent: 'center',
@@ -927,6 +959,9 @@ export default function ScrollVideo() {
         >
           <div
             ref={stageRef}
+            // 빈 캔버스(배경) 클릭 시 선택 해제 → 녹색 테두리 사라짐. 요소 박스 클릭은
+            // onPointerDown 에서 stopPropagation 하므로 여기로 버블링되지 않음.
+            onPointerDown={(e) => { if (e.target === e.currentTarget) setPicked(null) }}
             style={{
               position: 'relative',
               width: '100%',
@@ -956,7 +991,9 @@ export default function ScrollVideo() {
                       boxSizing: 'border-box',
                       overflow: 'hidden',
                       cursor: 'grab',
-                      background: 'transparent'
+                      background: 'transparent',
+                      // 선택된 요소를 맨 위로 → 겹쳐 있어도 그 박스가 드래그를 잡음
+                      zIndex: selected === 'video' ? 20 : 1
                     }}
                   >
                     <div
@@ -994,14 +1031,15 @@ export default function ScrollVideo() {
                       borderRadius: layout.imageBordered ? px(layout.radius) : 0,
                       border: layout.imageBordered
                         ? `${Math.max(1, layout.border * scale)}px solid var(--border)`
-                        : selected === 'image'
+                        : picked === 'image'
                           ? '1px dashed rgba(255,255,255,.25)'
                           : '1px dashed transparent',
                       boxShadow: ring('image'),
                       boxSizing: 'border-box',
                       overflow: 'hidden',
                       cursor: 'grab',
-                      background: 'transparent'
+                      background: 'transparent',
+                      zIndex: selected === 'image' ? 20 : 2
                     }}
                   >
                     <div
@@ -1015,7 +1053,16 @@ export default function ScrollVideo() {
                       }}
                     >
                       <img src={image.dataUrl} alt=""
-                        style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          // 박스를 꽉 채움(cover) + 중앙 확대 → 16:9 이미지를 16:4.5 박스에 넣으면 세로 절반만 보이고,
+                          // '이미지 크기'로 가운데 기준 확대/축소. 1배에서 모드 전환 없이 매끄럽게.
+                          objectFit: 'cover',
+                          pointerEvents: 'none',
+                          transformOrigin: 'center',
+                          transform: (layout.imageZoom ?? 1) > 1 ? `scale(${layout.imageZoom})` : undefined
+                        }} />
                     </div>
                     <div onPointerDown={(e) => onPointerDown(e, 'image', 'resize')} style={handleStyle} />
                   </div>
@@ -1037,7 +1084,8 @@ export default function ScrollVideo() {
                     boxShadow: ring('section'),
                     boxSizing: 'border-box',
                     overflow: 'hidden',
-                    cursor: 'grab'
+                    cursor: 'grab',
+                    zIndex: selected === 'section' ? 20 : 3
                   }}
                 >
                   <div
@@ -1089,7 +1137,8 @@ export default function ScrollVideo() {
                       textShadow: '1px 1px 2px rgba(0,0,0,.55)',
                       boxShadow: ring('title'),
                       borderRadius: 4,
-                      padding: `${Math.ceil(layout.titleSize * 0.22) * scale}px 0`
+                      padding: `${Math.ceil(layout.titleSize * 0.22) * scale}px 0`,
+                      zIndex: selected === 'title' ? 20 : 4
                     }}
                   >
                     {title.trim() !== '' && (
@@ -1114,15 +1163,15 @@ export default function ScrollVideo() {
                       top: 0,
                       width: '100%',
                       height: px(layout.safeTop ?? layout.titleY),
-                      background: 'rgba(255,80,80,.05)',
-                      borderBottom: '1px dashed rgba(255,120,120,.35)',
+                      background: 'rgba(255,170,40,.18)',
+                      borderBottom: '2px solid rgba(255,170,40,.7)',
                       pointerEvents: 'none',
                       display: 'flex',
                       alignItems: 'flex-end',
                       justifyContent: 'center'
                     }}
                   >
-                    <span style={{ fontSize: 9, color: 'rgba(255,150,150,.6)', paddingBottom: 5 }}>
+                    <span style={{ fontSize: 9, color: 'rgba(255,190,90,.9)', paddingBottom: 5 }}>
                       쇼츠 상단 영역 (선을 드래그)
                     </span>
                     {/* 아래 경계선 위의 드래그 핸들 */}
@@ -1267,165 +1316,92 @@ export default function ScrollVideo() {
         }}
       >
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '2px 16px' }}>
-          {/* ── 내용 ── */}
-          <Section title="내용">
-            <input
-              className="igen-textarea"
-              style={{ minHeight: 0 }}
-              placeholder="제목 (선택) — 예) 오늘의 명언"
-              value={title}
-              onFocus={() => setSelected('title')}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <input
-              className="igen-textarea"
-              style={{ minHeight: 0, marginTop: 8 }}
-              placeholder="부제목 (선택)"
-              value={subtitle}
-              onFocus={() => setSelected('title')}
-              onChange={(e) => setSubtitle(e.target.value)}
-            />
-            <textarea
-              className="igen-textarea"
-              style={{ marginTop: 10 }}
-              rows={5}
-              placeholder={'스크롤할 대본/가사/문구를 입력하세요.'}
-              value={text}
-              onFocus={() => setSelected('section')}
-              onChange={(e) => setText(e.target.value)}
-            />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 10 }}>
-              <div>
-                <div className="igen-label" style={{ marginBottom: 5 }}>상단 영상/이미지</div>
-                <div
-                  className="igen-drop"
-                  style={{ minHeight: 64 }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) attachFile(e.dataTransfer.files) }}
-                  onClick={() => document.getElementById('sgen-file')?.click()}
-                >
-                  {!media ? (
-                    <span style={{ fontSize: 12 }}>영상/이미지 첨부</span>
-                  ) : (
-                    <div className="igen-refs">
-                      <div className="igen-ref" onClick={(e) => e.stopPropagation()}>
-                        {media.isVideo ? <video src={mediaUrl} muted playsInline /> : <img src={mediaUrl} alt="" />}
-                        <button className="igen-ref-x" onClick={removeMedia} title="제거"><X size={12} /></button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <input id="sgen-file" type="file" accept="image/*,video/*" hidden
-                  onChange={(e) => e.target.files && attachFile(e.target.files)} />
-              </div>
-              <div>
-                <div className="igen-label" style={{ marginBottom: 5 }}>별도 이미지</div>
-                <div
-                  className="igen-drop"
-                  style={{ minHeight: 64 }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) attachImage(e.dataTransfer.files) }}
-                  onClick={() => document.getElementById('sgen-img')?.click()}
-                >
-                  {!image ? (
-                    <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <ImagePlus size={13} /> 이미지 추가
-                    </span>
-                  ) : (
-                    <div className="igen-refs">
-                      <div className="igen-ref" onClick={(e) => e.stopPropagation()}>
-                        <img src={image.dataUrl} alt="" />
-                        <button className="igen-ref-x" onClick={removeImage} title="제거"><X size={12} /></button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <input id="sgen-img" type="file" accept="image/*" hidden
-                  onChange={(e) => e.target.files && attachImage(e.target.files)} />
-              </div>
-            </div>
-          </Section>
-
-          {/* ── 레이아웃 ── */}
-          <Section title="레이아웃">
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="igen-label" style={{ marginBottom: 6 }}>빠른 배치</div>
-                <select
-                  value={tmpl}
-                  style={{ width: '100%' }}
-                  onChange={(e) => {
-                    const t = e.target.value as 'default' | 'split2' | 'split3'
-                    if (t === 'split2') arrange('split2')
-                    // 3분할: 저장된 사용자 템플릿이 있으면 그대로 복원, 없으면 기본 프리셋
-                    else if (t === 'split3') { if (!applySplit3Tpl()) arrange('split3', { applyDefaults: true }) }
-                    else arrange('default', { hasMedia: !!media })
-                  }}
-                >
-                  <option value="default">기본</option>
-                  <option value="split2">2분할</option>
-                  <option value="split3">3분할</option>
-                </select>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="igen-label" style={{ marginBottom: 6 }}>화면 비율</div>
-                <select
-                  value={aspect}
-                  style={{ width: '100%' }}
-                  onChange={(e) => changeAspect(e.target.value as Aspect)}
-                >
-                  {ASPECT_OPTS.map((a) => (
-                    <option key={a.v} value={a.v}>{a.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div style={{ marginTop: 12 }}>
-              <Slider label="모서리 둥글기" value={layout.radius} min={0} max={Math.round(0.06 * layout.W)}
-                suffix="px" onChange={(v) => patch({ radius: v })} />
-            </div>
-            <button className="igen-act" style={{ marginTop: 12 }} onClick={() => reLayout()}>
-              <RotateCcw size={13} /> 자동정렬로 리셋
-            </button>
-
-            {/* 3분할 사용자 템플릿: 현재 배치를 저장 → 빠른배치에서 '3분할' 고르면 그대로 복원 */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <button className="igen-act" style={{ flex: 1 }} onClick={saveSplit3Tpl}
-                title="지금 화면의 영상·이미지·제목·부제목·텍스트 위치와 크기를 3분할 템플릿으로 저장합니다">
-                <Bookmark size={13} /> 현재 배치를 3분할 템플릿으로 저장
-              </button>
-              {hasSplit3Tpl() && (
-                <button className="igen-act" style={{ flex: '0 0 auto' }} onClick={clearSplit3Tpl}
-                  title="저장된 3분할 템플릿 삭제 (기본 3분할로 동작)">
-                  <BookmarkX size={13} /> 템플릿 삭제
-                </button>
-              )}
-            </div>
-            <p className="igen-note" style={{ marginTop: 6 }}>
-              {hasSplit3Tpl()
-                ? '저장된 3분할 템플릿이 있어요. 빠른 배치에서 ‘3분할’을 고르면 이 배치가 복원되고, 새 영상/이미지를 넣어도 위치는 유지됩니다.'
-                : '원하는 배치로 맞춘 뒤 저장하면, 빠른 배치 ‘3분할’ 선택 시 그 배치가 그대로 적용됩니다.'}
-            </p>
-          </Section>
-
-          {/* ── 선택 요소 맥락 설정 ── */}
-          <div style={{ paddingTop: 12 }}>
-            <div className="igen-label" style={{ marginBottom: 7 }}>요소별 설정</div>
-            <div className="igen-ratios" style={{ marginBottom: 12 }}>
+          {/* ── 상단 탭: 홈 · 제목 · 영상 · 이미지 · 텍스트 ── */}
+          <div style={{ paddingTop: 6 }}>
+            <div className="igen-ratios" style={{ marginBottom: 14, flexWrap: 'nowrap', gap: 6 }}>
               {(Object.keys(SEL_META) as Sel[]).map((s) => {
                 const { label, Icon } = SEL_META[s]
                 return (
                   <button key={s} className={`igen-ratio ${selected === s ? 'active' : ''}`}
-                    onClick={() => setSelected(s)} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    onClick={() => { setSelected(s); setPicked(s === 'home' ? null : s) }}
+                    style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '8px 4px', whiteSpace: 'nowrap' }}>
                     <Icon size={13} /> {label}
                   </button>
                 )
               })}
             </div>
 
+            {/* 홈: 화면 비율 · 빠른 배치 · 리셋 · 템플릿 (기본 설정) */}
+            {selected === 'home' && (
+              <>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="igen-label" style={{ marginBottom: 6 }}>화면 비율</div>
+                    <select value={aspect} style={{ width: '100%' }}
+                      onChange={(e) => changeAspect(e.target.value as Aspect)}>
+                      {ASPECT_OPTS.map((a) => (
+                        <option key={a.v} value={a.v}>{a.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="igen-label" style={{ marginBottom: 6 }}>빠른 배치</div>
+                    <select value={tmpl} style={{ width: '100%' }}
+                      onChange={(e) => {
+                        const t = e.target.value as 'default' | 'split2' | 'split3'
+                        if (t === 'split2') arrange('split2')
+                        // 3분할: 항상 기본 프리셋 적용(저장 템플릿은 '불러오기' 버튼으로만 복원)
+                        else if (t === 'split3') arrange('split3', { applyDefaults: true })
+                        else arrange('default', { hasMedia: !!media })
+                      }}>
+                      <option value="default">기본</option>
+                      <option value="split2">2분할</option>
+                      <option value="split3">3분할</option>
+                    </select>
+                  </div>
+                </div>
+                <button className="igen-act" style={{ marginTop: 12 }} onClick={() => reLayout()}>
+                  <RotateCcw size={13} /> 자동정렬로 리셋
+                </button>
+
+                {/* 사용자 템플릿: 지금 배치를 저장 → '불러오기'로 그대로 복원 */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button className="igen-act" style={{ flex: 1 }} onClick={saveSplit3Tpl}
+                    title="지금 화면의 영상·이미지·제목·텍스트 위치와 크기를 템플릿으로 저장합니다">
+                    <Bookmark size={13} /> 템플릿 저장
+                  </button>
+                  {hasSplit3Tpl() && (
+                    <>
+                      <button className="igen-act" style={{ flex: 1 }}
+                        onClick={() => { if (applySplit3Tpl()) setMsg('저장한 템플릿을 불러왔어요') }}
+                        title="저장한 템플릿 배치를 그대로 불러옵니다">
+                        <Bookmark size={13} /> 불러오기
+                      </button>
+                      <button className="igen-act" style={{ flex: '0 0 auto' }} onClick={clearSplit3Tpl}
+                        title="저장한 템플릿 삭제">
+                        <BookmarkX size={13} /> 삭제
+                      </button>
+                    </>
+                  )}
+                </div>
+                <p className="igen-note" style={{ marginTop: 6 }}>
+                  {hasSplit3Tpl()
+                    ? '저장된 템플릿이 있어요. ‘불러오기’를 누르면 그 배치가 그대로 복원됩니다.'
+                    : '여기서 화면 비율·기본 배치를 정하고, 제목·영상·이미지·텍스트 탭에서 내용을 채우세요.'}
+                </p>
+              </>
+            )}
+
             {selected === 'section' && (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px' }}>
+                <textarea
+                  className="igen-textarea"
+                  rows={5}
+                  placeholder={'스크롤할 대본/가사/문구를 입력하세요.'}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px', marginTop: 12 }}>
                   <Slider label="글자 크기" value={layout.textSize} min={20} max={120} suffix="px"
                     onChange={(v) => patch({ textSize: v })} />
                   <Slider label="줄 간격" value={layout.lineSpacing} min={1} max={2.6} step={0.1}
@@ -1467,8 +1443,23 @@ export default function ScrollVideo() {
             )}
 
             {selected === 'title' && (
-              title.trim() !== '' || subtitle.trim() !== '' ? (
-                <>
+              <>
+                <input
+                  className="igen-textarea"
+                  style={{ minHeight: 0 }}
+                  placeholder="제목 (선택) — 예) 오늘의 명언"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+                <input
+                  className="igen-textarea"
+                  style={{ minHeight: 0, marginTop: 8 }}
+                  placeholder="부제목 (선택)"
+                  value={subtitle}
+                  onChange={(e) => setSubtitle(e.target.value)}
+                />
+                {title.trim() !== '' || subtitle.trim() !== '' ? (
+                  <div style={{ marginTop: 14 }}>
                   <div className="igen-label" style={{ marginBottom: 6 }}>폰트</div>
                   <select
                     value={layout.titleFont}
@@ -1505,98 +1496,120 @@ export default function ScrollVideo() {
                       onChange={(c) => patch({ subtitleColor: c })} />
                   </div>
                   <p className="igen-note">미리보기에서 제목을 드래그해 위치를 옮길 수 있어요. (9:16은 쇼츠 상단 영역 아래에 기본 배치됨)</p>
-                </>
-              ) : (
-                <p className="igen-note">‘내용’에서 제목/부제목을 입력하면 여기서 폰트·색·크기를 조절할 수 있어요.</p>
-              )
+                  </div>
+                ) : (
+                  <p className="igen-note">제목·부제목을 입력하면 폰트·크기·색 옵션이 여기 나타나요.</p>
+                )}
+              </>
             )}
 
             {selected === 'video' && (
-              media ? (
-                <>
-                  <div className="igen-label" style={{ marginBottom: 6 }}>영상 맞춤</div>
-                  <div className="igen-ratios">
-                    <button className={`igen-ratio ${layout.videoFit === 'contain' ? 'active' : ''}`}
-                      title="원본 비율 유지 — 박스가 영상 비율을 따라가 위아래 여백(레터박스) 없이 전체가 보임"
-                      onClick={() =>
-                        // 원본 비율 = 박스를 영상 비율에 스냅(레터박스 방지)
-                        setLayout((L) => ({ ...L, videoFit: 'contain', video: { ...L.video, h: clamp(Math.round(L.video.w / mediaAR), 80, L.H) } }))
-                      }>원본 비율</button>
-                    <button className={`igen-ratio ${layout.videoFit === 'cover' ? 'active' : ''}`}
-                      title="박스를 자유 크기로 — 영상이 박스를 꽉 채우며 일부 잘림"
-                      onClick={() => patch({ videoFit: 'cover' })}>꽉 채우기</button>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <>
+                <div className="igen-label" style={{ marginBottom: 5 }}>영상 업로드</div>
+                <div
+                  className="igen-drop"
+                  style={{ minHeight: 84 }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) attachFile(e.dataTransfer.files) }}
+                  onClick={() => document.getElementById('sgen-file')?.click()}
+                >
+                  {!media ? (
+                    <span style={{ fontSize: 12 }}>영상/이미지 첨부</span>
+                  ) : (
+                    <div className="igen-refs">
+                      <div className="igen-ref" onClick={(e) => e.stopPropagation()}>
+                        {media.isVideo ? <video src={mediaUrl} muted playsInline /> : <img src={mediaUrl} alt="" />}
+                        <button className="igen-ref-x" onClick={removeMedia} title="제거"><X size={12} /></button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <input id="sgen-file" type="file" accept="image/*,video/*" hidden
+                  onChange={(e) => { const el = e.currentTarget; if (el.files?.length) attachFile(el.files); el.value = '' }} />
+                {media ? (
+                  <div style={{ marginTop: 12 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
                     <button
                       className="igen-act"
                       style={{ flex: 1 }}
-                      title="박스 높이를 영상 실제 비율에 맞춰 — 잘림/여백 없이 전체 영상이 보임"
-                      onClick={async () => {
-                        if (!media) return
-                        // 실제 영상 비율을 그 자리에서 다시 읽어 정확히 맞춤(저장값이 어긋났을 때 대비)
-                        const ar = await getMediaAspect(media.previewUrl, media.isVideo)
-                        setMediaAR(ar)
-                        setLayout((L) => ({
-                          ...L,
-                          videoFit: 'contain',
-                          vPadX: 0,
-                          vPadY: 0,
-                          video: { ...L.video, h: clamp(Math.round(L.video.w / ar), 80, L.H) }
-                        }))
-                      }}
+                      title="제목 아래에 4:3 기본 크기로 되돌립니다"
+                      onClick={() => setLayout((L) => ({ ...L, ...defaultVideoLayout(L) }))}
                     >
-                      영상 비율로 맞춤
+                      4:3 기본
                     </button>
                     <button
                       className="igen-act"
                       style={{ flex: 1 }}
-                      title="영상 박스를 화면 전체로 (여백 없이 꽉 채움)"
+                      title="영상 창을 화면 전체로 (여백 없이 꽉 채움)"
                       onClick={() =>
                         setLayout((L) => ({
                           ...L,
                           video: { x: 0, y: 0, w: L.W, h: L.H },
                           videoFit: 'cover',
+                          videoZoom: 1,
                           vPadX: 0,
                           vPadY: 0
                         }))
                       }
                     >
-                      <VideoIcon size={13} /> 전체 채우기
+                      <VideoIcon size={13} /> 화면 꽉 채우기
                     </button>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px', marginTop: 12 }}>
-                    {layout.videoFit === 'contain' ? (
-                      // 원본 비율: 크기(폭) 조절 → 높이는 영상 비율로 자동(레터박스 없음)
-                      <Slider label="영상 크기" value={layout.video.w} min={Math.round(0.3 * layout.W)} max={layout.W} suffix="px"
-                        onChange={(v) => patchBox('video', { w: v, h: clamp(Math.round(v / mediaAR), 80, layout.H) })} />
-                    ) : (
-                      <Slider label="박스 높이" value={layout.video.h} min={Math.round(0.12 * layout.H)} max={Math.round(0.95 * layout.H)} suffix="px"
-                        onChange={(v) => patchBox('video', { h: v })} />
-                    )}
-                    <Slider label="좌우 여백" value={layout.vPadX} min={0} max={Math.round(layout.video.w / 2 - 10)} suffix="px"
-                      onChange={(v) => patch({ vPadX: v })} />
-                    <Slider label="상하 여백" value={layout.vPadY} min={0} max={Math.round(layout.video.h / 2 - 10)} suffix="px"
-                      onChange={(v) => patch({ vPadY: v })} />
-                    {layout.videoFit === 'cover' && (
-                      <Slider label="확대(크롭)" value={layout.videoZoom} min={1} max={2.5} step={0.05}
-                        onChange={(v) => patch({ videoZoom: v })} />
-                    )}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px', marginTop: 14 }}>
+                    {/* 창 크기: 4:3 비율 고정한 채 폭만 조절 (가로 중심 유지) */}
+                    <Slider label="창 크기" value={layout.video.w} min={Math.round(0.3 * layout.W)} max={layout.W} suffix="px"
+                      onChange={(v) => {
+                        const cx = layout.video.x + layout.video.w / 2
+                        const w = v
+                        const h = Math.round((w * 3) / 4)
+                        const x = clamp(Math.round(cx - w / 2), 0, layout.W - w)
+                        patchBox('video', { w, h, x })
+                      }} />
+                    {/* 영상 크기: 창 안에서 영상 확대(가장자리 더 잘림) */}
+                    <Slider label="영상 크기" value={layout.videoZoom} min={1} max={2.5} step={0.05}
+                      onChange={(v) => patch({ videoZoom: v })} />
+                    {/* 모서리 둥글기: 영상 창의 모서리 라운드 */}
+                    <Slider label="모서리 둥글기" value={layout.radius} min={0} max={Math.round(0.06 * layout.W)} suffix="px"
+                      onChange={(v) => patch({ radius: v })} />
                   </div>
-                  {layout.videoFit === 'cover' && (
-                    <p className="igen-note">
-                      영상에 검은 띠(레터박스)가 박혀 있으면 <b>확대(크롭)</b>를 올려 잘라내세요. (드라마/영화 클립은 2.35:1 띠가 들어있는 경우가 많아요)
-                    </p>
-                  )}
-                  <p className="igen-note">미리보기에서 영상 박스를 드래그해 위치·크기를 조절할 수 있어요.</p>
-                </>
-              ) : (
-                <p className="igen-note">‘내용’에서 상단 영상/이미지를 첨부하세요.</p>
-              )
+                  <p className="igen-note">
+                    <b>창 크기</b>는 4:3 비율 그대로 커지고 줄어듭니다. <b>영상 크기</b>를 키우면 창 안에서 영상이 확대돼 가장자리가 더 잘려요.
+                  </p>
+                  <p className="igen-note">미리보기에서 영상 창을 드래그하면 위치·크기를 자유롭게(비율 무시) 바꿀 수 있어요.</p>
+                  </div>
+                ) : (
+                  <p className="igen-note">영상을 올리면 크기·모서리 등 옵션이 여기 나타나요.</p>
+                )}
+              </>
             )}
 
             {selected === 'image' && (
-              image ? (
-                <>
+              <>
+                <div className="igen-label" style={{ marginBottom: 5 }}>이미지 업로드</div>
+                <div
+                  className="igen-drop"
+                  style={{ minHeight: 84 }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) attachImage(e.dataTransfer.files) }}
+                  onClick={() => document.getElementById('sgen-img')?.click()}
+                >
+                  {!image ? (
+                    <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <ImagePlus size={13} /> 이미지 추가
+                    </span>
+                  ) : (
+                    <div className="igen-refs">
+                      <div className="igen-ref" onClick={(e) => e.stopPropagation()}>
+                        <img src={image.dataUrl} alt="" />
+                        <button className="igen-ref-x" onClick={removeImage} title="제거"><X size={12} /></button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <input id="sgen-img" type="file" accept="image/*" hidden
+                  onChange={(e) => { const el = e.currentTarget; if (el.files?.length) attachImage(el.files); el.value = '' }} />
+                {image ? (
+                  <div style={{ marginTop: 12 }}>
                   <div className="igen-label" style={{ marginBottom: 6 }}>배치 방식</div>
                   <div className="igen-ratios">
                     <button className={`igen-ratio ${layout.imageBordered ? 'active' : ''}`}
@@ -1604,15 +1617,23 @@ export default function ScrollVideo() {
                     <button className={`igen-ratio ${!layout.imageBordered ? 'active' : ''}`}
                       onClick={() => patch({ imageBordered: false })} title="테두리 없이 이미지만 배치">그냥 배치</button>
                   </div>
-                  <div style={{ marginTop: 12 }}>
-                    <Slider label="이미지 크기" value={layout.image.w} min={Math.round(0.15 * layout.W)} max={layout.W} suffix="px"
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '11px 14px', marginTop: 12 }}>
+                    {/* 창 크기: 박스 비율 유지한 채 폭만 (이미지 전체가 보이는 상태 유지) */}
+                    <Slider label="창 크기" value={layout.image.w} min={Math.round(0.15 * layout.W)} max={layout.W} suffix="px"
                       onChange={(v) => patchBox('image', { w: v, h: Math.round((v / layout.image.w) * layout.image.h) })} />
+                    {/* 이미지 크기: 창 안에서 중앙 기준 확대(상하 잘림) */}
+                    <Slider label="이미지 크기" value={layout.imageZoom ?? 1} min={1} max={2.5} step={0.05}
+                      onChange={(v) => patch({ imageZoom: v })} />
                   </div>
+                  <p className="igen-note">
+                    <b>창 크기</b>는 이미지 전체가 보이는 박스 크기예요. <b>이미지 크기</b>를 키우면 창 가운데를 기준으로 확대돼 상하단이 잘립니다.
+                  </p>
                   <p className="igen-note">미리보기에서 이미지를 드래그해 위치·크기를 조절할 수 있어요.</p>
-                </>
-              ) : (
-                <p className="igen-note">‘내용’에서 별도 이미지를 추가하세요.</p>
-              )
+                  </div>
+                ) : (
+                  <p className="igen-note">이미지를 올리면 배치·크기 옵션이 여기 나타나요.</p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1620,10 +1641,21 @@ export default function ScrollVideo() {
         {/* ── 하단 고정 생성바 ── */}
         <div style={{ borderTop: '1px solid var(--border)', padding: '12px 14px' }}>
           {msg && <div className={`igen-msg ${msg === '완료' ? 'ok' : ''}`} style={{ marginBottom: 8, marginTop: 0 }}>{msg}</div>}
-          <button className="igen-go" onClick={run} disabled={generating} style={{ marginTop: 0, width: '100%' }}>
-            {generating ? (<><Loader2 size={16} className="igen-spin" /> 생성 중…</>)
-              : (<><Sparkles size={16} /> 스크롤영상 만들기</>)}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+            <button className="igen-go" onClick={run} disabled={generating}
+              style={{ marginTop: 0, flex: 1, width: 'auto', minWidth: 0, whiteSpace: 'nowrap' }}>
+              {generating ? (<><Loader2 size={16} className="igen-spin" /> 생성 중…</>)
+                : (<><Sparkles size={16} /> 스크롤영상 만들기</>)}
+            </button>
+            <button
+              className="igen-go"
+              onClick={() => window.electronAPI.fs.openPath(saveDir || '@downloads')}
+              title="생성된 스크롤영상이 저장된 폴더 열기"
+              style={{ marginTop: 0, flex: '0 0 auto', width: 'auto', whiteSpace: 'nowrap', padding: '12px 14px', background: 'var(--surface-2)', color: 'var(--text)' }}
+            >
+              <FolderOpen size={16} /> 저장폴더
+            </button>
+          </div>
         </div>
       </div>
     </div>

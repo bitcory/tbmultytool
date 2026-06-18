@@ -65,6 +65,7 @@ export interface ScrollLayout {
   image: Box // 별도 이미지 외곽 박스
   imgPadX: number
   imgPadY: number
+  imageZoom: number // 창 안에서 이미지 확대 배율(중앙 기준). 기본 1=전체 보임
   imageBordered: boolean // true=박스(테두리) 안 / false=그냥 배치(테두리 없음)
   section: Box // 텍스트 섹션 외곽 박스
   sectionBordered: boolean // true=텍스트창 테두리선 표시 / false=없음
@@ -92,13 +93,15 @@ export function autoLayout(aspect: Aspect, hasMedia: boolean, hasTitle: boolean)
   const titleLineH = round(titleSize * 1.25)
   const titleBottom = hasTitle ? titleY + titleLineH : margin
 
-  let video: Box = { x: margin, y: titleBottom + gap, w: contentW, h: round(0.4 * H) }
+  // 영상 창은 4:3 고정 프레임(영상 비율과 무관). 영상은 cover로 창을 꽉 채움.
+  const videoH = round((contentW * 3) / 4)
+  let video: Box = { x: margin, y: titleBottom + gap, w: contentW, h: videoH }
   let secTop: number
   if (hasMedia) {
     secTop = video.y + video.h + gap
   } else {
     secTop = titleBottom + gap
-    video = { x: margin, y: titleBottom + gap, w: contentW, h: round(0.4 * H) } // 보관용(미사용)
+    video = { x: margin, y: titleBottom + gap, w: contentW, h: videoH } // 보관용(미사용)
   }
   const section: Box = { x: margin, y: secTop, w: contentW, h: H - margin - secTop }
   // 별도 이미지 기본 박스: 화면 가운데 정사각(가로의 절반). 사용자가 드래그/리사이즈.
@@ -122,7 +125,7 @@ export function autoLayout(aspect: Aspect, hasMedia: boolean, hasTitle: boolean)
     titleGap: round(38 * 0.55), // 제목-부제목 기본 간격 (≈21px)
     hasMedia,
     video,
-    videoFit: 'contain',
+    videoFit: 'cover',
     videoZoom: 1,
     vPadX: 0,
     vPadY: 0,
@@ -130,6 +133,7 @@ export function autoLayout(aspect: Aspect, hasMedia: boolean, hasTitle: boolean)
     image,
     imgPadX: 0,
     imgPadY: 0,
+    imageZoom: 1,
     imageBordered: true,
     section,
     sectionBordered: true,
@@ -429,7 +433,9 @@ export async function renderSpecFromLayout(
       box,
       padX: round(L.imgPadX),
       padY: round(L.imgPadY),
-      fit: 'contain',
+      // 박스를 꽉 채움(cover) + zoom 으로 중앙 확대·크롭 → 16:9 이미지를 16:4.5 박스에 넣으면 세로 절반만 보임.
+      fit: 'cover',
+      zoom: L.imageZoom ?? 1,
       // '그냥 배치'(테두리 없음)면 마스크 없이 PNG 투명도 그대로. '박스 안'이면 둥근 마스크.
       mask: L.imageBordered ? renderRoundMaskPng(box.w, box.h, L.radius) : undefined
     })

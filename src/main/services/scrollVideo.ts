@@ -136,9 +136,13 @@ export async function renderScrollVideo(
         )
         fc.push(`[bgL${i}][sc${i}]overlay=${L.padX}:${L.padY}[ly${i}p]`)
       } else {
-        // 원본비율: 안쪽 영역에 맞춰 축소 → 박스 중앙 배치(나머지는 투명)
+        // 원본비율(contain) + zoom: 안쪽 영역을 zoom배 한 크기에 맞춰 축소 → 박스 중앙 배치.
+        // zoom 1이면 전체가 보이고(여백 투명), zoom>1이면 더 커져 overlay가 박스 밖을 잘라냄(중앙 크롭).
+        const z = Math.max(1, L.zoom || 1)
+        const tw = Math.round(innerW * z)
+        const th = Math.round(innerH * z)
         fc.push(
-          `[${L.idx}:v]scale=${innerW}:${innerH}:force_original_aspect_ratio=decrease,setsar=1[sc${i}]`
+          `[${L.idx}:v]scale=${tw}:${th}:force_original_aspect_ratio=decrease,setsar=1[sc${i}]`
         )
         fc.push(`[bgL${i}][sc${i}]overlay=(W-w)/2:(H-h)/2[ly${i}p]`)
       }

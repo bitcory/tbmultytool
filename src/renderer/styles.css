@@ -231,6 +231,13 @@ code { background: var(--surface-2); padding: 1px 6px; border-radius: 5px; font-
 .igen-spin { animation: igen-rot 1s linear infinite; }
 @keyframes igen-rot { to { transform: rotate(360deg); } }
 
+/* 프레임 추출 — 썸네일 호버 액션(저장/삭제) */
+.frm-tile-actions { position: absolute; top: 6px; right: 6px; display: none; gap: 5px; }
+.igen-tile:hover .frm-tile-actions { display: flex; }
+.frm-tile-actions button { width: 26px; height: 26px; border-radius: 7px; border: none; cursor: pointer; background: rgba(15,17,21,.78); color: #fff; display: flex; align-items: center; justify-content: center; padding: 0; backdrop-filter: blur(4px); }
+.frm-tile-actions button:hover { background: var(--primary); }
+.frm-tile-actions button:last-child:hover { background: var(--red); }
+
 /* 음악(오디오) 타일 — 정사각형 대신 가로형 플레이어 */
 .gtile-audio { aspect-ratio: auto; cursor: default; padding: 12px; display: flex; flex-direction: column; }
 .gtile-audio-inner { display: flex; flex-direction: column; gap: 8px; }

@@ -4,6 +4,7 @@ import path from 'path'
 import { writeZip } from './zip'
 import type {
   ApiKeys,
+  BlogPostPayload,
   BridgeJobResult,
   ImageSource,
   Project,
@@ -37,6 +38,7 @@ import { grabberScript } from './injectGrabber'
 import { deployExtension } from './extensionDeploy'
 import { grokVideoScript } from './automateGrok'
 import { renderScrollVideo } from './services/scrollVideo'
+import { probeVideo, extractFrame, materializeVideo } from './frames'
 
 // 소스별 임베드 창 추적 (자동화 명령을 보낼 대상)
 const embedded = new Map<ImageSource, BrowserWindow>()
@@ -205,6 +207,13 @@ export function registerIpc(): void {
     }
   )
 
+  // --- 프레임 추출기 (ffmpeg) ---
+  ipcMain.handle(IPC.framesProbe, (_e, filePath: string) => probeVideo(filePath))
+  ipcMain.handle(IPC.framesExtract, (_e, filePath: string, timeSec: number) =>
+    extractFrame(filePath, timeSec)
+  )
+  ipcMain.handle(IPC.framesPrepare, (_e, dataUrl: string) => materializeVideo(dataUrl))
+
   // 로컬 미디어(이미지/영상) → data URL (렌더러 미리보기용)
   ipcMain.handle(IPC.readImage, async (_e, p: string) => {
     const buf = await fs.readFile(p)
@@ -266,6 +275,17 @@ export function registerIpc(): void {
       if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
       console.log('[AVS] 텍스트 생성 요청 (chatgpt)')
       return await enqueueJob({ source: 'chatgpt', kind: 'text', prompt: prompt.trim() })
+    }
+  )
+
+  // 티스토리 블로그 발행: 블로그 확장이 티스토리 에디터 탭에서 작업을 가져가 주입.
+  // (사용자가 티스토리 글쓰기 페이지를 열어두고 블로그 확장이 설치돼 있어야 함)
+  ipcMain.handle(
+    IPC.bridgeGenerateBlog,
+    async (_e, payload: BlogPostPayload): Promise<BridgeJobResult> => {
+      if (!payload?.title?.trim()) return { ok: false, message: '제목이 비어 있습니다.' }
+      console.log('[AVS] 블로그 발행 요청 (tistory)')
+      return await enqueueJob({ source: 'tistory', kind: 'blog', prompt: payload.title.trim(), blogPayload: payload })
     }
   )
 

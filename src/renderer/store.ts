@@ -14,7 +14,7 @@ const defaultOptions: ProjectOptions = {
   imageStyle: 'cinematic, high detail, soft lighting'
 }
 
-export type View = 'home' | 'imagegen' | 'videogen' | 'scrollvideo' | 'musicgen' | 'cardnews' | 'wizard' | 'gallery' | 'gallerygrid' | 'settings'
+export type View = 'home' | 'imagegen' | 'videogen' | 'scrollvideo' | 'frames' | 'musicgen' | 'cardnews' | 'blog' | 'wizard' | 'gallery' | 'gallerygrid' | 'settings'
 export type Step = 0 | 1 | 2 | 3 // 준비 / 대본 / 자산 / 렌더
 
 interface AppState {
