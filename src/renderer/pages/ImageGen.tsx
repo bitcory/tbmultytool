@@ -499,7 +499,7 @@ export default function ImageGen() {
           </div>
           {msg && <div className={`igen-msg ${msg === '완료' ? 'ok' : ''}`}>{msg}</div>}
           <p className="igen-note">
-            ※ {source === 'chatgpt' ? 'ChatGPT' : 'Google Flow'} 로그인 필요. 프롬프트 {prompts.length || 0}개 → 창 {prompts.length || 0}개로 병렬 생성됩니다.
+            ※ {source === 'chatgpt' ? 'ChatGPT' : 'Google Flow'} 로그인 필요. 프롬프트 {prompts.length || 0}개 → 최대 5개 탭이 동시에 처리하고 나머지는 순서대로 생성됩니다(완료된 탭은 자동으로 닫힙니다).
           </p>
         </div>
       </div>

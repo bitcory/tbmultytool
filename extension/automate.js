@@ -316,6 +316,9 @@
   const WORKER_ID = 'w-' + Math.random().toString(36).slice(2, 10)
   let busy = false
   let backoffUntil = 0 // 레이트리밋 시 이 시각까지 새 작업 안 받음(heartbeat 는 계속)
+  let didWork = false // 이 탭이 작업을 한 번이라도 받았는지(=자동화 워커 탭) → 자동닫기/자가치유 대상 판별
+  let emptyPolls = 0 // 받을 작업 없이 빈 폴링이 연속된 횟수(자동닫기 트리거)
+  let busySince = 0 // busy 진입 시각(워치독: 비정상 장시간 busy 강제 해제)
 
   // 앱의 정지 버튼이 눌렸는지 확인 (실행 중 중간중간 호출). 취소면 throw 로 즉시 중단.
   async function throwIfCanceled(jobId) {
@@ -324,25 +327,42 @@
   }
 
   async function tick() {
+    // 워치독: busy 가 비정상적으로 오래(>6분) 지속되면(멈춘 워커) 슬롯을 강제 해제해 다음 작업을 받게 한다.
+    if (busy && busySince && Date.now() - busySince > 360000) {
+      log('워치독: busy 6분 초과 → 강제 해제(멈춘 워커 복구)')
+      busy = false
+    }
     // 한가할 때(새 작업 받기 전)만 페이지 가드: 이미지 생성이 가능한 "기본 채팅"에서만 작업을 받는다.
     //  - 허용: "/"(새 채팅), "/c/..."(일반 대화)
-    //  - 제외: "/g/..."(커스텀 GPT·프로젝트), "/gpts", 설정 등 — 이미지 도구가 없어 "이 대화에선 이미지 생성
-    //    도구를 사용할 수 없습니다"가 뜨는 곳. 이런 탭은 폴링조차 안 해 → 앱이 깨끗한 chatgpt.com 탭을 새로 연다.
-    // (작업 중이면 컴포저 유무와 무관하게 heartbeat 를 계속 보내 탭이 살아있음을 알린다.)
-    if (!busy) {
-      // URL 만으로 판정한다. (getPromptInput 등 컴포저 로딩 의존 조건을 넣으면, 새로 열린 chatgpt.com/ 탭이
-      //  컴포저 뜨기 전까지 heartbeat 를 못 보내 워커 등록이 안 되고 → 앱이 새 탭을 계속 열어 창이 증식한다.)
-      const p = location.pathname
-      if (p !== '/' && p.indexOf('/c/') !== 0) return // 기본 채팅(/ 또는 /c/)이 아니면 작업 안 받음
+    //  - 제외: "/g/..."(커스텀 GPT·프로젝트), "/gpts", 설정 등 — 이미지 도구가 없는 곳.
+    const p = location.pathname
+    const workable = p === '/' || p.indexOf('/c/') === 0
+    if (!busy && !workable) {
+      // 자가치유: 작업을 했던 워커 탭이 작업 불가 페이지로 흘러갔으면 새 채팅으로 리셋해 다시 쓸 수 있게.
+      // (작업한 적 없는 탭 = 사용자가 보던 탭일 수 있으므로 건드리지 않는다.)
+      if (didWork) {
+        log('자가치유: 작업 불가 페이지 → 새 채팅으로 리셋')
+        location.href = 'https://chatgpt.com/'
+      }
+      return
     }
-    // heartbeat 는 작업 중(쿨다운/백오프 포함)에도 항상 보낸다 → 앱이 이 탭이 살아있음을 알고
-    // 동시 탭 수를 정확히 통제(쿨다운 중 엉뚱한 새 탭이 열리지 않음).
+    // heartbeat 는 작업 중(쿨다운/백오프 포함)에도 항상 보낸다 → 앱이 이 탭이 살아있음을 알고 동시 탭 수를 통제.
     const ready = !busy && Date.now() >= backoffUntil
     const r = await send({ type: 'poll', source: 'chatgpt', worker: WORKER_ID, ready: ready ? 1 : 0 })
     if (!ready) return
     const job = r && r.job
-    if (!job) return
+    if (!job) {
+      // 자동 닫기: 작업을 했던 워커 탭이 더 받을 작업 없이 한동안(≈18초) 비어 있으면 스스로 닫는다.
+      if (didWork && ++emptyPolls >= 6) {
+        log('할 일 없음 → 워커 탭 자동 닫기')
+        send({ type: 'close-tab' })
+      }
+      return
+    }
+    emptyPolls = 0
     busy = true
+    busySince = Date.now()
+    didWork = true
     const report = (m) => { log(m); send({ type: 'job-status', id: job.id, status: 'progress', message: m }) }
     try {
       if (job.kind === 'text') {

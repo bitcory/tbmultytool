@@ -48,7 +48,7 @@ export function setSiteOpener(fn: (source: string) => void): void {
 // ── 워커(탭) 풀 관리 ─────────────────────────────────────────────────────
 // 각 확장 탭은 고유 workerId 로 heartbeat 폴링한다. 작업 중(쿨다운 포함)에도 heartbeat 는
 // 계속 보내므로(ready=0), 살아있는 탭 수를 정확히 알 수 있고 쿨다운 중 엉뚱한 탭이 열리지 않는다.
-const MAX_WORKERS = 3 // 소스별 동시 탭 상한 (봇 오인/레이트리밋 보호). 추후 설정값으로 노출 가능.
+const MAX_WORKERS = 5 // 소스별 동시 탭 상한 (봇 오인/레이트리밋 보호). 추후 설정값으로 노출 가능.
 const WORKER_TTL = 20000 // heartbeat 끊긴 지 이 시간 지나면 죽은 탭으로 간주
 const OPEN_GRACE = 35000 // 탭 열고 첫 heartbeat 도착까지 유예(ChatGPT SPA 로딩이 느려 넉넉히)
 const RATE_BACKOFF_MS = 90000 // 레이트리밋 감지 시 그 소스로 새 탭 여는 것을 잠시 멈춤

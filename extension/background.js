@@ -167,6 +167,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true })
     return true
   }
+  // 할 일 없는 워커 탭 자동 닫기: content script(automate.js/grok.js)가 요청하면 그 탭을 닫는다
+  if (msg?.type === 'close-tab') {
+    const id = sender?.tab?.id
+    if (id != null) {
+      try {
+        chrome.tabs.remove(id).catch(() => {})
+      } catch (e) {}
+    }
+    sendResponse({ ok: true })
+    return true
+  }
   if (msg?.type === 'image') {
     sendToApp(msg)
       .then((j) => sendResponse({ ok: true, id: j.id }))

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Scissors, Film, Loader2, Download, Trash2, RefreshCw, Archive, ChevronLeft, ChevronRight, Crop
+  Scissors, Film, Loader2, Download, Trash2, RefreshCw, Archive, ChevronLeft, ChevronRight, Crop, SkipForward
 } from 'lucide-react'
 import { usePersistedForm } from '../persist'
 
@@ -196,6 +196,27 @@ export default function Frames() {
       const r = await window.electronAPI.frames.extract(media.workPath, cur)
       addFrame(r)
       setMsg('프레임을 추출했어요')
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '추출 실패')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 마지막(엔드) 프레임 자동 추출 — 영상 길이를 넘겨 호출하면 메인에서 클램프+끝프레임 폴백으로 잡는다
+  const extractEnd = async () => {
+    if (!media || busy) return
+    const total = dur || info?.duration || 0
+    if (total <= 0) {
+      setMsg('영상 길이를 읽지 못했습니다.')
+      return
+    }
+    setBusy(true)
+    setMsg('마지막 프레임 추출 중…')
+    try {
+      const r = await window.electronAPI.frames.extract(media.workPath, total)
+      addFrame(r)
+      setMsg('마지막 프레임을 추출했어요')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '추출 실패')
     } finally {
@@ -406,6 +427,16 @@ export default function Frames() {
               <button className="igen-go" disabled={busy} onClick={extractCurrent}>
                 {busy ? <Loader2 size={16} className="igen-spin" /> : <Crop size={16} />}
                 이 위치 프레임 추출
+              </button>
+
+              {/* 엔드프레임 (마지막 프레임 자동 추출) */}
+              <button
+                className="igen-act"
+                disabled={busy}
+                onClick={extractEnd}
+                style={{ width: '100%', marginTop: 8, justifyContent: 'center' }}
+              >
+                <SkipForward size={14} /> 엔드프레임 (마지막 프레임)
               </button>
 
               {/* 균등 추출 */}
