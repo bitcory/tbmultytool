@@ -34,7 +34,13 @@ const SITE_GLOBS = [
   'https://chat.openai.com/*',
   'https://grok.com/*',
   'https://suno.com/*',
-  'https://labs.google/*'
+  'https://labs.google/*',
+  'https://www.coupang.com/*',
+  'https://*.coupang.com/*',
+  'https://app.runway.com/*',
+  'https://runway.com/*',
+  'https://www.xiaohongshu.com/*',
+  'https://*.xiaohongshu.com/*'
 ]
 function isNewerVersion(a, b) {
   const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0)
@@ -55,13 +61,21 @@ async function checkExtUpdate() {
     const latest = j && j.extVersion
     const current = chrome.runtime.getManifest().version
     if (!latest || !isNewerVersion(latest, current)) return
+    // 무한 reload 루프 방지: 로드된 확장 폴더가 갱신되지 않으면(예: 개발 중 다른 폴더를 로드)
+    // reload 해도 버전이 그대로라 매번 다시 reload 하게 된다. 같은 목표 버전으로 이미 한 번
+    // 시도했으면 더는 reload 하지 않는다.
+    const { __lastReloadTarget } = await chrome.storage.local.get('__lastReloadTarget')
+    if (__lastReloadTarget === latest) {
+      console.warn('[AVS] ' + latest + ' 로 reload 했지만 버전이 그대로(' + current + '). 로드된 확장 폴더를 확인하세요. 루프 방지를 위해 중단.')
+      return
+    }
     // 열려있는 우리 사이트 탭들을 reload 예약 → 재시작 후 새 content script 주입.
     let ids = []
     try {
       const tabs = await chrome.tabs.query({ url: SITE_GLOBS })
       ids = tabs.map((t) => t.id).filter((id) => id != null)
     } catch (e) {}
-    await chrome.storage.local.set({ __reloadTabs: ids })
+    await chrome.storage.local.set({ __reloadTabs: ids, __lastReloadTarget: latest })
     console.log('[AVS] 확장 업데이트 감지 ' + current + ' → ' + latest + ' · 자동 reload')
     chrome.runtime.reload()
   } catch (e) {}
@@ -184,6 +198,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }))
     return true // 비동기 응답
   }
+  // Flow 배치 컨트롤러 → flow-options 로 비율/옵션 릴레이 (content script 간 통신은 background 경유).
+  if (msg?.type === 'fe-apply-options') {
+    const tabId = sender?.tab?.id
+    if (tabId != null) {
+      try {
+        chrome.tabs.sendMessage(tabId, { type: 'APPLY_FLOW_OPTIONS', ratio: msg.ratio, count: msg.count })
+      } catch (e) {}
+    }
+    sendResponse({ ok: true })
+    return true
+  }
+  // 쿠팡 상품정보 전달 → 앱(/import-product). 이미지 URL 들은 background 가 쿠키 포함 fetch 로
+  // dataUrl 변환(교차출처 우회)해 같이 보낸다(소재로 바로 쓰도록). 최대 8장.
+  if (msg?.type === 'product') {
+    ;(async () => {
+      try {
+        const base = await findApp()
+        if (!base) throw new Error('앱을 찾을 수 없습니다. TB MTOOL 앱이 실행 중인지 확인하세요.')
+        const product = msg.product || {}
+        const imgs = []
+        for (const u of (product.images || []).slice(0, 8)) {
+          try {
+            imgs.push(await urlToDataUrl(u))
+          } catch (e) {
+            /* 일부 이미지 실패는 무시 */
+          }
+        }
+        const res = await fetch(base + '/import-product', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source: 'coupang', product, imageDataUrls: imgs, pageUrl: msg.pageUrl, jobId: msg.jobId })
+        })
+        const j = await res.json().catch(() => ({ ok: false, error: '응답 파싱 실패' }))
+        if (!j.ok) throw new Error(j.error || '전송 실패')
+        sendResponse({ ok: true, id: j.id })
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) })
+      }
+    })()
+    return true
+  }
   if (msg?.type === 'status') {
     findApp()
       .then((base) => sendResponse({ ok: !!base, base }))
@@ -221,6 +276,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ canceled: !!j.canceled })
       } catch (e) {
         sendResponse({ canceled: false })
+      }
+    })()
+    return true
+  }
+  // 샤오홍슈 검색결과 카드 배열을 앱으로 중계 (/xhs-results)
+  if (msg?.type === 'xhs-results') {
+    ;(async () => {
+      try {
+        const base = await findApp()
+        if (!base) return sendResponse({ ok: false })
+        await fetch(base + '/xhs-results', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cards: msg.cards || [] })
+        })
+        sendResponse({ ok: true })
+      } catch (e) {
+        sendResponse({ ok: false })
       }
     })()
     return true

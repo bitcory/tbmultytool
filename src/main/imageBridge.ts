@@ -6,7 +6,7 @@ import { promises as fs, createReadStream } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { app, net } from 'electron'
-import type { BridgeInfo, BridgeJob, BridgeJobResult, ImageSource, ImportedImage } from '@shared/types'
+import type { BridgeInfo, BridgeJob, BridgeJobResult, CoupangProduct, ImageSource, ImportedImage } from '@shared/types'
 import { getDeployedExtVersion } from './extensionDeploy'
 
 const PREFERRED_PORT = 47321
@@ -18,6 +18,11 @@ let dir = ''
 let indexFile = ''
 let items: ImportedImage[] = []
 let notify: (img: ImportedImage) => void = () => {}
+let notifyProduct: (product: CoupangProduct) => void = () => {}
+let notifyXhsResults: (cards: unknown[]) => void = () => {}
+export function setXhsResultsListener(cb: (cards: unknown[]) => void): void {
+  notifyXhsResults = cb
+}
 let debugEval: ((target: string, js: string) => Promise<unknown>) | null = null
 export function setDebugEval(fn: (target: string, js: string) => Promise<unknown>): void {
   debugEval = fn
@@ -263,7 +268,7 @@ async function persistIndex(): Promise<void> {
 }
 
 function normalizeSource(s: unknown): ImageSource {
-  return s === 'chatgpt' || s === 'flow' || s === 'grok' || s === 'suno' || s === 'scroll'
+  return s === 'chatgpt' || s === 'flow' || s === 'grok' || s === 'suno' || s === 'scroll' || s === 'xiaohongshu'
     ? s
     : 'other'
 }
@@ -392,10 +397,14 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   })
 }
 
-/** 서버 시작. onImport: 새 이미지가 들어올 때마다 호출(렌더러로 전달용). */
-export async function startImageBridge(onImport: (img: ImportedImage) => void): Promise<BridgeInfo> {
+/** 서버 시작. onImport: 새 이미지 도착 콜백. onProduct: 쿠팡 상품정보 도착 콜백(둘 다 렌더러로 전달용). */
+export async function startImageBridge(
+  onImport: (img: ImportedImage) => void,
+  onProduct?: (product: CoupangProduct) => void
+): Promise<BridgeInfo> {
   await ensureDir()
   notify = onImport
+  if (onProduct) notifyProduct = onProduct
 
   server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
@@ -466,6 +475,41 @@ export async function startImageBridge(onImport: (img: ImportedImage) => void): 
         const payload = JSON.parse(await readBody(req))
         const img = await importImage(payload)
         json(res, 200, { ok: true, id: img.id })
+      } catch (err) {
+        json(res, 400, { ok: false, error: String(err instanceof Error ? err.message : err) })
+      }
+      return
+    }
+    // 확장(coupang.js→background)이 쿠팡 상품정보를 보냄.
+    // 상품 이미지(dataUrl)는 소재로 갤러리에 저장하고, 상품 텍스트정보는 렌더러로 push.
+    if (req.method === 'POST' && req.url === '/import-product') {
+      try {
+        const { product, imageDataUrls, pageUrl } = JSON.parse(await readBody(req)) as {
+          product: CoupangProduct
+          imageDataUrls?: string[]
+          pageUrl?: string
+        }
+        // 소재 이미지 저장 → 로컬 media URL 로 치환(렌더러 CSP 가 원격 https 이미지를 막으므로).
+        const localImages: string[] = []
+        for (const dataUrl of (imageDataUrls || []).slice(0, 8)) {
+          const img = await importImage({ source: 'coupang', dataUrl, pageUrl }).catch(() => null)
+          if (img) localImages.push(`http://127.0.0.1:${port}/media/${path.basename(img.path)}`)
+        }
+        const enriched = { ...product, images: localImages.length ? localImages : product.images }
+        notifyProduct(enriched)
+        json(res, 200, { ok: true })
+      } catch (err) {
+        json(res, 400, { ok: false, error: String(err instanceof Error ? err.message : err) })
+      }
+      return
+    }
+
+    // 샤오홍슈 검색결과 카드 배열 수신(확장 스크래퍼 → 앱)
+    if (req.method === 'POST' && req.url === '/xhs-results') {
+      try {
+        const { cards } = JSON.parse(await readBody(req)) as { cards?: unknown[] }
+        notifyXhsResults(Array.isArray(cards) ? cards : [])
+        json(res, 200, { ok: true })
       } catch (err) {
         json(res, 400, { ok: false, error: String(err instanceof Error ? err.message : err) })
       }

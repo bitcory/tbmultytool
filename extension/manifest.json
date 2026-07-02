@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TB MTOOL Companion",
-  "version": "0.1.32",
+  "version": "0.1.51",
   "description": "TB MTOOL 앱의 생성 작업(ChatGPT·Grok·Suno 등)을 사용자 크롬에서 자동 실행하고, 결과를 앱으로 보냅니다 (로컬 전용).",
   "permissions": [
     "storage",
@@ -26,7 +26,19 @@
     "https://*.x.ai/*",
     "https://suno.com/*",
     "https://*.suno.com/*",
-    "https://*.suno.ai/*"
+    "https://*.suno.ai/*",
+    "https://www.coupang.com/*",
+    "https://*.coupang.com/*",
+    "https://*.coupangcdn.com/*",
+    "https://link.coupang.com/*",
+    "https://partners.coupang.com/*",
+    "https://runway.com/*",
+    "https://app.runway.com/*",
+    "https://runwayml.com/*",
+    "https://app.runwayml.com/*",
+    "https://www.xiaohongshu.com/*",
+    "https://*.xiaohongshu.com/*",
+    "https://*.xhscdn.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -75,6 +87,9 @@
       "matches": [
         "https://labs.google/*"
       ],
+      "exclude_matches": [
+        "https://labs.google/fx/*"
+      ],
       "js": [
         "flow.js"
       ],
@@ -84,10 +99,67 @@
       "matches": [
         "https://labs.google/*"
       ],
+      "exclude_matches": [
+        "https://labs.google/fx/*"
+      ],
       "js": [
         "flow-main.js"
       ],
       "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://labs.google/fx/*"
+      ],
+      "js": [
+        "flowengine/fe-flow-options.js",
+        "flowengine/fe-controller.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://labs.google/fx/*"
+      ],
+      "js": [
+        "flowengine/fe-slate-helper.js",
+        "flowengine/fe-drop-handler.js",
+        "flowengine/fe-page-script.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.coupang.com/vp/products/*",
+        "https://*.coupang.com/vp/products/*"
+      ],
+      "js": [
+        "coupang.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://runway.com/*",
+        "https://app.runway.com/*",
+        "https://runwayml.com/*",
+        "https://app.runwayml.com/*"
+      ],
+      "js": [
+        "runwayengine/re-controller.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.xiaohongshu.com/*",
+        "https://*.xiaohongshu.com/*"
+      ],
+      "js": [
+        "xiaohongshu.js"
+      ],
       "run_at": "document_idle"
     }
   ],

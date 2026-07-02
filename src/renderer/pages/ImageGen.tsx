@@ -5,6 +5,10 @@ import { usePersistedForm, isToday } from '../persist'
 
 const ASPECTS = ['16:9', '9:16', '1:1', '4:3', '3:4']
 const isImagePath = (p: string) => !/\.(mp4|webm|mov|mp3|wav)$/i.test(p)
+// 이 화면은 '여기서 생성한' 이미지만 보여준다. 쿠팡 상품이미지(임포트 시 source가 'other'로 저장)나
+// 편집/티스토리 등 갤러리 전용 임포트는 제외 — 갤러리에만 남는다.
+const GEN_SOURCES: ImageSource[] = ['chatgpt', 'flow']
+const isGenImage = (i: ImportedImage) => isImagePath(i.path) && GEN_SOURCES.includes(i.source)
 type GenMode = 'text-to-image' | 'image-to-image'
 
 // 빈 줄(엔터 2번)로 프롬프트 분리
@@ -105,7 +109,7 @@ export default function ImageGen() {
   // 지난 날짜분은 갤러리엔 남고 이 화면에선 빠진다(여긴 새로 만드는 곳).
   useEffect(() => {
     window.electronAPI.bridge.list().then((all) => {
-      setImages(all.filter((i) => isImagePath(i.path) && isToday(i.importedAt)))
+      setImages(all.filter((i) => isGenImage(i) && isToday(i.importedAt)))
     })
   }, [])
 
@@ -113,7 +117,7 @@ export default function ImageGen() {
     const off = window.electronAPI.bridge.onImported((img) => {
       // 오늘 도착한 이미지면 화면에 추가 — 생성 중 카운트와 무관하게 받아 누락을 막는다.
       // (이전엔 pendingCount>0 일 때만 받아, 생성 도중 다른 메뉴에 갔다 오면 이미지를 놓쳤다.)
-      if (!isImagePath(img.path) || !isToday(img.importedAt)) return
+      if (!isGenImage(img) || !isToday(img.importedAt)) return
       setImages((prev) => [img, ...prev.filter((p) => p.id !== img.id)])
       if (pendingCount.current > 0) {
         pendingCount.current = Math.max(0, pendingCount.current - 1)
@@ -499,7 +503,9 @@ export default function ImageGen() {
           </div>
           {msg && <div className={`igen-msg ${msg === '완료' ? 'ok' : ''}`}>{msg}</div>}
           <p className="igen-note">
-            ※ {source === 'chatgpt' ? 'ChatGPT' : 'Google Flow'} 로그인 필요. 프롬프트 {prompts.length || 0}개 → 최대 5개 탭이 동시에 처리하고 나머지는 순서대로 생성됩니다(완료된 탭은 자동으로 닫힙니다).
+            ※ {source === 'chatgpt'
+              ? `ChatGPT 로그인 필요. 프롬프트 ${prompts.length || 0}개 → 최대 5개 탭이 동시에 처리하고 나머지는 순서대로 생성됩니다(완료된 탭은 자동으로 닫힙니다).`
+              : `Google Flow 로그인 필요. 프롬프트 ${prompts.length || 0}개를 Flow 탭 하나에서 순서대로 파이프라인 생성합니다.`}
           </p>
         </div>
       </div>

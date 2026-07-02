@@ -10,6 +10,10 @@ const SOURCE_BADGE: Record<ImageSource, string> = {
   suno: 'SUNO',
   scroll: '스크롤',
   tistory: '블로그',
+  coupang: '쿠팡',
+  flowbatch: 'Flow',
+  runway: 'Runway',
+  xiaohongshu: '샤오홍슈',
   other: '기타'
 }
 const isVideoPath = (p: string) => /\.(mp4|webm|mov)$/i.test(p)

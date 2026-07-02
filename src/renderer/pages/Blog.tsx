@@ -11,15 +11,19 @@ import { usePersistedForm, isToday } from '../persist'
 
 type Block =
   | { id: string; type: 'text'; text: string }
-  | { id: string; type: 'image'; prompt: string; dataUrl?: string }
+  | { id: string; type: 'image'; prompt: string; dataUrl?: string; path?: string }
 
 interface Post {
   title: string
   tags: string[]
   thumbPrompt?: string
   thumbDataUrl?: string
+  thumbPath?: string
   blocks: Block[]
 }
+
+const fileToDataUrl = (f: File): Promise<string> =>
+  new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result as string); fr.onerror = rej; fr.readAsDataURL(f) })
 
 const isImagePath = (p: string): boolean => !/\.(mp4|webm|mov|mp3|wav)$/i.test(p)
 const uid = (() => { let n = 0; return () => `b${++n}_${Math.round(performance.now())}` })()
@@ -130,6 +134,7 @@ export default function Blog() {
   // 생성된 이미지가 도착하면 대기 중인 슬롯에 순서대로 채운다.
   useEffect(() => {
     const off = window.electronAPI.bridge.onImported((img: ImportedImage) => {
+      if (img.source === 'other') return // 수동 업로드 이미지는 큐에서 소비하지 않음
       if (!isImagePath(img.path) || !isToday(img.importedAt)) return
       const slot = pendingSlots.current.shift()
       if (!slot) return
@@ -137,10 +142,10 @@ export default function Blog() {
         if (!dataUrl) return
         setPost((p) => {
           if (!p) return p
-          if (slot === 'thumb') return { ...p, thumbDataUrl: dataUrl }
+          if (slot === 'thumb') return { ...p, thumbDataUrl: dataUrl, thumbPath: img.path }
           return {
             ...p,
-            blocks: p.blocks.map((b) => (b.id === slot && b.type === 'image' ? { ...b, dataUrl } : b))
+            blocks: p.blocks.map((b) => (b.id === slot && b.type === 'image' ? { ...b, dataUrl, path: img.path } : b))
           }
         })
       })
@@ -156,6 +161,32 @@ export default function Blog() {
 
   const textLen = post ? post.blocks.filter((b) => b.type === 'text').reduce((n, b) => n + (b as { text: string }).text.length, 0) : 0
   const imageBlocks = post ? post.blocks.filter((b): b is Extract<Block, { type: 'image' }> => b.type === 'image') : []
+
+  // 새로고침 복원: 저장된 경로(path)는 있는데 dataUrl 이 비면 디스크에서 다시 읽어 미리보기 복구
+  const pathsSig = post ? (post.thumbPath || '') + '|' + post.blocks.map((b) => (b.type === 'image' ? b.path || '' : '')).join(',') : ''
+  useEffect(() => {
+    if (!post) return
+    if (post.thumbPath && !post.thumbDataUrl) readImage(post.thumbPath).then((d) => d && setPost((p) => (p ? { ...p, thumbDataUrl: d } : p)))
+    post.blocks.forEach((b) => {
+      if (b.type === 'image' && b.path && !b.dataUrl) readImage(b.path).then((d) => d && setPost((p) => (p ? { ...p, blocks: p.blocks.map((x) => (x.id === b.id && x.type === 'image' ? { ...x, dataUrl: d } : x)) } : p)))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathsSig])
+
+  // 슬롯에 이미지 직접 업로드(붙여넣기/드롭/폴더) → 앱에 저장 후 슬롯 채움
+  const uploadSlot = async (slotId: string, dataUrl: string) => {
+    try {
+      const img = await window.electronAPI.bridge.importImage({ source: 'other', dataUrl, filename: 'blog.png' })
+      setPost((p) => {
+        if (!p) return p
+        if (slotId === 'thumb') return { ...p, thumbDataUrl: dataUrl, thumbPath: img.path }
+        return { ...p, blocks: p.blocks.map((b) => (b.id === slotId && b.type === 'image' ? { ...b, dataUrl, path: img.path } : b)) }
+      })
+      setMsg('이미지 업로드 완료')
+    } catch (e) {
+      setMsg('이미지 업로드 실패')
+    }
+  }
 
   // 1) GPT로 글 작성
   const write = async () => {
@@ -200,9 +231,15 @@ export default function Blog() {
     if (slots.length === 0) { setMsg('생성할 이미지 프롬프트가 없습니다.'); return }
     pendingSlots.current = slots.map((s) => s.id)
     setGenImages(true)
-    setMsg(`이미지 ${slots.length}장 생성 시작… (크롬 탭 ${slots.length}개)`)
-    const r = await window.electronAPI.bridge.generateBatch(imgSource, slots.map((s) => ({ prompt: s.prompt })), aspect)
-    if (!r.ok) { pendingSlots.current = []; setGenImages(false); setMsg(r.message || '이미지 생성 실패') }
+    const prompts = slots.map((s) => s.prompt)
+    // Flow 는 쇼핑쇼츠와 동일하게 한 탭 파이프라인(generateFlowBatch)으로, ChatGPT 는 멀티탭 배치로.
+    const r =
+      imgSource === 'flow'
+        ? (setMsg(`Flow 엔진으로 ${slots.length}장 생성 시작… (한 탭 순차 파이프라인) · 크롬 Flow 로그인 필요`),
+          await window.electronAPI.bridge.generateFlowBatch(prompts, [], aspect))
+        : (setMsg(`ChatGPT로 이미지 ${slots.length}장 생성 시작… (크롬 탭 ${slots.length}개)`),
+          await window.electronAPI.bridge.generateBatch('chatgpt', prompts.map((p) => ({ prompt: p })), aspect))
+    if (!r.ok) { pendingSlots.current = []; setGenImages(false); setMsg(r.message || '이미지 생성 실패 — 크롬 로그인/확장 확인') }
   }
 
   // 슬롯 1개만 재생성
@@ -210,8 +247,11 @@ export default function Blog() {
     if (!prompt.trim()) return
     pendingSlots.current = [slotId, ...pendingSlots.current]
     setGenImages(true)
-    setMsg('이미지 재생성 중…')
-    const r = await window.electronAPI.bridge.generateBatch(imgSource, [{ prompt }], aspect)
+    setMsg(imgSource === 'flow' ? 'Flow 엔진으로 재생성 중…' : '이미지 재생성 중…')
+    const r =
+      imgSource === 'flow'
+        ? await window.electronAPI.bridge.generateFlowBatch([prompt], [], aspect)
+        : await window.electronAPI.bridge.generateBatch('chatgpt', [{ prompt }], aspect)
     if (!r.ok) {
       pendingSlots.current = pendingSlots.current.filter((s) => s !== slotId)
       if (pendingSlots.current.length === 0) setGenImages(false)
@@ -225,6 +265,7 @@ export default function Blog() {
     pendingSlots.current = []
     setGenImages(false)
     setWriting(false)
+    setPublishing(false)
     setMsg('정지했습니다.')
   }
 
@@ -263,35 +304,50 @@ export default function Blog() {
   const imagesDone = imageBlocks.filter((b) => b.dataUrl).length + (post?.thumbDataUrl ? 1 : 0)
   const imagesTotal = imageBlocks.length + (post?.thumbPrompt ? 1 : 0)
 
+  const tabStyle = (active: boolean, disabled?: boolean): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9,
+    border: '1px solid ' + (active ? '#346aff' : 'rgba(255,255,255,0.1)'),
+    background: active ? '#346aff' : 'transparent',
+    color: active ? '#fff' : disabled ? '#5a5f6b' : '#c9ccd6',
+    cursor: disabled ? 'default' : 'pointer', fontSize: 13, fontWeight: 700, opacity: disabled ? 0.6 : 1
+  })
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* 상단 탭 */}
-      <div style={{ display: 'flex', gap: 8, padding: '14px 18px 0', alignItems: 'center' }}>
-        <PenLine size={16} /> <b style={{ fontSize: 14, marginRight: 10 }}>블로그 자동화</b>
-        <div className="igen-seg" style={{ width: 'auto' }}>
-          <button className={`igen-seg-btn ${tab === 'input' ? 'active' : ''}`} onClick={() => setTab('input')}>
-            <FileText size={15} /> 입력
+      {/* 상단 탭 바 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 800, fontSize: 14 }}>
+          <PenLine size={16} /> 블로그 자동화
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setTab('input')} style={tabStyle(tab === 'input')}>
+            <FileText size={14} /> 입력
           </button>
-          <button className={`igen-seg-btn ${tab === 'review' ? 'active' : ''}`} onClick={() => setTab('review')} disabled={!post}>
-            <Eye size={15} /> 검토 {post ? '✓' : ''}
+          <button onClick={() => setTab('review')} disabled={!post} style={tabStyle(tab === 'review', !post)}>
+            <Eye size={14} /> 검토{post ? ' ✓' : ''}
           </button>
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 18 }}>
-        {/* ── 입력 탭 ── */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '22px 28px' }}>
+        {/* ── 입력 탭 (좌: 기사 내용 · 우: 옵션) ── */}
         {tab === 'input' && (
-          <div style={{ maxWidth: 760, margin: '0 auto' }}>
-            <div className="igen-label">기사 내용</div>
-            <textarea
-              className="igen-textarea"
-              rows={12}
-              value={article}
-              onChange={(e) => setArticle(e.target.value)}
-              placeholder={'블로그로 만들 기사/원문 내용을 붙여넣으세요.\nGPT가 이 내용을 바탕으로 제목·본문·태그를 작성하고, 본문 사이에 이미지를 배치합니다.'}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 380px', gap: 28, alignItems: 'stretch', minHeight: 'calc(100% - 2px)' }}>
+            {/* 왼쪽: 기사 내용 */}
+            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <div className="igen-label">기사 내용</div>
+              <textarea
+                className="igen-textarea"
+                style={{ flex: 1, minHeight: 'min(68vh, 620px)', resize: 'vertical', padding: 14, lineHeight: 1.6 }}
+                value={article}
+                onChange={(e) => setArticle(e.target.value)}
+                placeholder={'블로그로 만들 기사/원문 내용을 붙여넣으세요.\nGPT가 이 내용을 바탕으로 제목·본문·태그를 작성하고, 본문 사이에 이미지를 배치합니다.'}
+              />
+              <div style={{ marginTop: 7, fontSize: 11, color: '#8b90a0' }}>{article.length.toLocaleString()}자 입력됨</div>
+            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+            {/* 오른쪽: 생성 옵션 (카드) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20, background: '#13151c', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 18, alignSelf: 'start' }}>
               <div>
                 <div className="igen-label">글자수 (본문 최대)</div>
                 <div className="igen-ratios">
@@ -302,6 +358,7 @@ export default function Blog() {
                   ))}
                 </div>
               </div>
+
               <div>
                 <div className="igen-label">본문 이미지 수</div>
                 <div className="igen-ratios">
@@ -312,9 +369,7 @@ export default function Blog() {
                   ))}
                 </div>
               </div>
-            </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
               <div>
                 <div className="igen-label">썸네일(대표이미지)</div>
                 <div className="igen-ratios">
@@ -322,38 +377,46 @@ export default function Blog() {
                   <button className={`igen-ratio ${!withThumb ? 'active' : ''}`} onClick={() => setWithThumb(false)}>없음</button>
                 </div>
               </div>
+
               <div>
-                <div className="igen-label">이미지 엔진 / 비율</div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div className="igen-seg" style={{ flex: 1 }}>
-                    <button className={`igen-seg-btn ${imgSource === 'chatgpt' ? 'active' : ''}`} onClick={() => setImgSource('chatgpt')}>ChatGPT</button>
-                    <button className={`igen-seg-btn ${imgSource === 'flow' ? 'active' : ''}`} onClick={() => setImgSource('flow')}>Flow</button>
-                  </div>
-                  <select value={aspect} onChange={(e) => setAspect(e.target.value)} style={{ width: 88 }}>
-                    {['16:9', '4:3', '1:1', '9:16', '3:4'].map((a) => <option key={a} value={a}>{a}</option>)}
-                  </select>
+                <div className="igen-label">이미지 엔진</div>
+                <div className="igen-seg">
+                  <button className={`igen-seg-btn ${imgSource === 'chatgpt' ? 'active' : ''}`} onClick={() => setImgSource('chatgpt')}>ChatGPT</button>
+                  <button className={`igen-seg-btn ${imgSource === 'flow' ? 'active' : ''}`} onClick={() => setImgSource('flow')}>Flow</button>
+                </div>
+                <div style={{ fontSize: 10.5, color: '#7a8090', marginTop: 5 }}>
+                  {imgSource === 'flow' ? 'Flow: 한 탭에서 순차 생성(쇼핑쇼츠와 동일)' : 'ChatGPT: 여러 탭 동시 생성'}
                 </div>
               </div>
-            </div>
 
-            <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-              <button className="igen-go" onClick={write} disabled={writing} style={{ flex: 1, marginTop: 0 }}>
-                {writing ? (<><Loader2 size={16} className="igen-spin" /> 글 작성 중…</>) : (<><Sparkles size={16} /> GPT로 블로그 글 작성</>)}
-              </button>
-              {writing && (
-                <button className="igen-go danger" onClick={stop} style={{ width: 'auto', whiteSpace: 'nowrap', marginTop: 0, padding: '12px 18px' }}>
-                  <X size={16} /> 정지
+              <div>
+                <div className="igen-label">이미지 비율</div>
+                <div className="igen-ratios">
+                  {['16:9', '4:3', '1:1', '9:16', '3:4'].map((a) => (
+                    <button key={a} className={`igen-ratio ${aspect === a ? 'active' : ''}`} onClick={() => setAspect(a)}>{a}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button className="igen-go" onClick={write} disabled={writing} style={{ flex: 1, marginTop: 0 }}>
+                  {writing ? (<><Loader2 size={16} className="igen-spin" /> 글 작성 중…</>) : (<><Sparkles size={16} /> GPT로 블로그 글 작성</>)}
                 </button>
-              )}
+                {writing && (
+                  <button className="igen-go danger" onClick={stop} style={{ width: 'auto', whiteSpace: 'nowrap', marginTop: 0, padding: '12px 16px' }}>
+                    <X size={16} /> 정지
+                  </button>
+                )}
+              </div>
+              {msg && <div className={`igen-msg ${/완료/.test(msg) ? 'ok' : ''}`}>{msg}</div>}
+              <p className="igen-note" style={{ marginTop: 0 }}>※ ChatGPT 로그인 + TB MTOOL 확장 필요. 글 작성 후 ‘검토’ 탭에서 이미지를 생성합니다.</p>
             </div>
-            {msg && <div className={`igen-msg ${/완료/.test(msg) ? 'ok' : ''}`}>{msg}</div>}
-            <p className="igen-note">※ ChatGPT 로그인 + TB MTOOL 확장 필요. 글 작성 후 ‘검토’ 탭에서 이미지를 생성합니다.</p>
           </div>
         )}
 
         {/* ── 검토 탭 ── */}
         {tab === 'review' && post && (
-          <div style={{ maxWidth: 760, margin: '0 auto' }}>
+          <div style={{ width: '100%' }}>
             {/* 액션 바 */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
               <button className="igen-go" onClick={generateImages} disabled={genImages} style={{ width: 'auto', whiteSpace: 'nowrap', marginTop: 0 }}>
@@ -367,6 +430,11 @@ export default function Blog() {
               <button className="igen-go" onClick={publish} disabled={publishing} style={{ width: 'auto', whiteSpace: 'nowrap', marginTop: 0 }}>
                 {publishing ? (<><Loader2 size={16} className="igen-spin" /> 올리는 중…</>) : (<><UploadIcon size={16} /> 블로그 올리기</>)}
               </button>
+              {publishing && (
+                <button className="igen-go danger" onClick={stop} style={{ width: 'auto', whiteSpace: 'nowrap', marginTop: 0, padding: '12px 16px' }}>
+                  <X size={16} /> 정지
+                </button>
+              )}
             </div>
 
             {/* 제목 */}
@@ -380,11 +448,11 @@ export default function Blog() {
                 <ImageSlot
                   dataUrl={post.thumbDataUrl}
                   prompt={post.thumbPrompt}
-                  big
                   busy={genImages}
                   onPrompt={(t) => setPost({ ...post, thumbPrompt: t })}
                   onRegen={() => regen('thumb', post.thumbPrompt || '')}
-                  onClear={() => setPost({ ...post, thumbDataUrl: undefined })}
+                  onClear={() => setPost({ ...post, thumbDataUrl: undefined, thumbPath: undefined })}
+                  onUpload={(d) => uploadSlot('thumb', d)}
                 />
               </div>
             )}
@@ -409,7 +477,8 @@ export default function Blog() {
                     busy={genImages}
                     onPrompt={(t) => setPost({ ...post, blocks: post.blocks.map((x) => (x.id === b.id && x.type === 'image' ? { ...x, prompt: t } : x)) })}
                     onRegen={() => regen(b.id, b.prompt)}
-                    onClear={() => setPost({ ...post, blocks: post.blocks.map((x) => (x.id === b.id && x.type === 'image' ? { ...x, dataUrl: undefined } : x)) })}
+                    onClear={() => setPost({ ...post, blocks: post.blocks.map((x) => (x.id === b.id && x.type === 'image' ? { ...x, dataUrl: undefined, path: undefined } : x)) })}
+                    onUpload={(d) => uploadSlot(b.id, d)}
                   />
                 )
               )}
@@ -432,32 +501,58 @@ export default function Blog() {
   )
 }
 
-// 이미지 슬롯: 미리보기 + 프롬프트 + 재생성/제거
+// 이미지 슬롯: 미리보기(드롭/붙여넣기/클릭 업로드) + 프롬프트 + 재생성/제거
 function ImageSlot({
-  dataUrl, prompt, big, busy, onPrompt, onRegen, onClear
+  dataUrl, prompt, busy, onPrompt, onRegen, onClear, onUpload
 }: {
   dataUrl?: string
   prompt: string
-  big?: boolean
   busy?: boolean
   onPrompt: (t: string) => void
   onRegen: () => void
   onClear: () => void
+  onUpload: (dataUrl: string) => void
 }) {
+  const pick = async () => {
+    const p = await window.electronAPI.fs.pickImage()
+    if (!p) return
+    const d = await window.electronAPI.fs.readImage(p)
+    if (d) onUpload(d)
+  }
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    const internal = e.dataTransfer.getData('text/avs-dataurl')
+    if (internal) { onUpload(internal); return }
+    const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith('image/'))
+    if (f) onUpload(await fileToDataUrl(f))
+  }
+  const onPaste = async (e: React.ClipboardEvent) => {
+    for (const it of Array.from(e.clipboardData?.items || [])) {
+      if (it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); onUpload(await fileToDataUrl(f)); return } }
+    }
+  }
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, background: 'var(--surface-2)' }}>
       <div style={{ display: 'flex', gap: 10 }}>
         <div
+          className="ss-drop"
+          tabIndex={0}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={onDrop}
+          onPaste={onPaste}
+          onClick={() => !dataUrl && pick()}
+          title={dataUrl ? '' : '클릭=폴더 · 드롭/붙여넣기로 업로드'}
           style={{
-            width: big ? 200 : 140, height: big ? 120 : 90, flex: '0 0 auto',
+            width: 260, height: 146, flex: '0 0 auto',
             borderRadius: 8, overflow: 'hidden', background: '#0c0e14',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
+            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+            cursor: dataUrl ? 'default' : 'pointer'
           }}
         >
           {dataUrl ? (
             <img src={dataUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : (
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{busy ? '생성 중…' : '이미지 없음'}</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', padding: 6 }}>{busy ? '생성 중…' : '클릭·드롭·붙여넣기'}</span>
           )}
         </div>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -472,6 +567,9 @@ function ImageSlot({
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="igen-act" onClick={onRegen} disabled={busy} title="이 이미지만 재생성">
               <RotateCw size={13} /> 재생성
+            </button>
+            <button className="igen-act" onClick={pick} title="폴더에서 이미지 업로드">
+              <ImageIcon size={13} /> 업로드
             </button>
             {dataUrl && (
               <button className="igen-act" onClick={onClear} title="이미지 비우기">

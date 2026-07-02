@@ -70,6 +70,12 @@
     for (let i = 0; i < 15; i++) { await sleep(100); if (qs('[role="menu"]')) return true }
     return !!qs('[role="menu"]')
   }
+  function closeAnyMenu() {
+    if (!qs('[role="menu"]')) return
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    const plus = getPlusButton()
+    if (plus && plus.getAttribute('aria-expanded') === 'true') document.body.click()
+  }
   async function activateImageTool() {
     if (isImageModeActive()) return true
     const quick = findByText('button, [role="button"], a', PAT.imageTool)
@@ -94,7 +100,11 @@
         }
       }
     }
-    return isImageModeActive()
+    // 활성화에 실패하면(또는 현재 UI에서 토글이 불필요하면) 열어둔 +메뉴를 반드시 닫는다.
+    // 이걸 안 닫으면 메뉴가 입력창 위에 그대로 떠 전송/다음 클릭을 가로챈다.
+    const ok = isImageModeActive()
+    if (!ok) closeAnyMenu()
+    return ok
   }
 
   function findSizeBtn() {

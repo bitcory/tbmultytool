@@ -32,22 +32,29 @@ import {
   enqueueJob,
   setJobStatusListener,
   cancelAllJobs,
-  setSiteOpener
+  setSiteOpener,
+  setXhsResultsListener
 } from './imageBridge'
+import { downloadNote as xhsDownloadNote } from './services/xiaohongshu'
 import { grabberScript } from './injectGrabber'
 import { deployExtension } from './extensionDeploy'
 import { grokVideoScript } from './automateGrok'
 import { renderScrollVideo } from './services/scrollVideo'
+import { youtubeSearch, analyzeChannel, youtubeQuota } from './services/youtube'
 import { probeVideo, extractFrame, materializeVideo } from './frames'
+import type { YoutubeSearchOpts, YoutubeChannelOpts, XhsSearchOpts } from '@shared/types'
 
 // 소스별 임베드 창 추적 (자동화 명령을 보낼 대상)
 const embedded = new Map<ImageSource, BrowserWindow>()
 
-const SOURCE_URL: Record<'chatgpt' | 'flow' | 'grok' | 'suno', string> = {
+const SOURCE_URL: Record<'chatgpt' | 'flow' | 'grok' | 'suno' | 'flowbatch' | 'runway' | 'xiaohongshu', string> = {
   chatgpt: 'https://chatgpt.com/',
   flow: 'https://labs.google/fx/ko/tools/flow',
   grok: 'https://grok.com/imagine',
-  suno: 'https://suno.com/create'
+  suno: 'https://suno.com/create',
+  flowbatch: 'https://labs.google/fx/ko/tools/flow', // Flow 엔진(한 탭 파이프라인) 배치
+  runway: 'https://app.runway.com/', // Runway Seedance 2.0
+  xiaohongshu: 'https://www.xiaohongshu.com/explore' // 샤오홍슈 소스찾기(확장이 검색 페이지로 이동)
 }
 
 function sourceForUrl(url: string): ImageSource {
@@ -71,6 +78,22 @@ function emitProgress(message: string): void {
   const embeds = new Set(embedded.values())
   for (const w of BrowserWindow.getAllWindows()) {
     if (!embeds.has(w) && !w.isDestroyed()) w.webContents.send(IPC.bridgeProgress, message)
+  }
+}
+
+// 자동화로 크롬 탭을 연 직후, 앱(웹앱) 창을 다시 앞으로 — 크롬이 앱을 가리지 않게.
+function focusApp(): void {
+  try {
+    app.focus({ steal: true })
+  } catch (e) {}
+  const embeds = new Set(embedded.values())
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!embeds.has(w) && !w.isDestroyed()) {
+      try {
+        w.focus()
+      } catch (e) {}
+      break
+    }
   }
 }
 
@@ -230,8 +253,29 @@ export function registerIpc(): void {
   // activate:false → 브라우저를 앞으로 끌어오지 않고 뒤에서 열어 앱 포커스를 유지(macOS).
   setSiteOpener((source) => {
     const url = (SOURCE_URL as Record<string, string>)[source]
-    if (url) shell.openExternal(url, { activate: false })
+    if (url) {
+      // activate:false → 브라우저를 앞으로 끌어오지 않음(자동화 창은 뒤에서 열림)
+      shell.openExternal(url, { activate: false })
+      // 혹시 크롬이 앞으로 튀어나오면, 잠시 후 앱 창을 다시 앞으로
+      setTimeout(focusApp, 500)
+    }
   })
+  // 샤오홍슈 검색결과(확장 스크래퍼) → 모든 렌더러로 전달
+  setXhsResultsListener((cards) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send(IPC.xhsResults, cards)
+    }
+  })
+  // 샤오홍슈 검색 작업을 확장에 전달(크롬 샤오홍슈에서 스크래핑)
+  ipcMain.handle(IPC.xhsSearch, async (_e, opts: XhsSearchOpts): Promise<{ ok: boolean; message?: string }> => {
+    const kw = (opts?.keyword || '').trim()
+    if (!kw) return { ok: false, message: '검색어를 입력하세요.' }
+    const r = await enqueueJob({ source: 'xiaohongshu', kind: 'search', prompt: kw, xhsSearch: { ...opts, keyword: kw } })
+    return { ok: !!r.ok, message: r.message }
+  })
+  // 샤오홍슈 노트 미디어(영상/이미지) 다운로드
+  ipcMain.handle(IPC.xhsDownload, async (_e, url: string) => xhsDownloadNote(url))
+
   ipcMain.handle(IPC.bridgeInfo, () => getBridgeInfo())
   ipcMain.handle(IPC.bridgeList, () => listImported())
   ipcMain.handle(IPC.bridgeClear, () => clearImported())
@@ -257,7 +301,22 @@ export function registerIpc(): void {
       if (!prompt?.trim()) return { ok: false, message: '프롬프트를 입력하세요.' }
       console.log('[AVS] 이미지 생성 요청: source=' + source)
 
-      // ChatGPT·Flow 모두 사용자 크롬의 확장에서 실행(임베드 창 봇벽/로그인 문제 회피).
+      // Flow 는 flowbatch(신형 한 탭 파이프라인)로 변환 — 구형 flow.js 폴링 경로는 끊겨 있음(위 batch 참조).
+      if (source === 'flow') {
+        const refs = referenceImages || []
+        const assets = refs.map((u, i) => ({ name: 'r' + (i + 1), dataUrl: u }))
+        const tokens = assets.map((a) => `@[${a.name}]`).join(' ')
+        const p = tokens ? `${tokens} ${prompt.trim()}` : prompt.trim()
+        return await enqueueJob({
+          source: 'flowbatch',
+          prompt: p,
+          prompts: [p],
+          aspect: aspect || '16:9',
+          assets
+        })
+      }
+
+      // ChatGPT 는 사용자 크롬의 확장에서 실행(임베드 창 봇벽/로그인 문제 회피).
       // 큐에 넣으면 확장이 진짜 크롬(로그인된 탭)에서 생성하고 결과를 갤러리로 보낸다.
       return await enqueueJob({
         source,
@@ -379,8 +438,38 @@ export function registerIpc(): void {
       const list = (items || []).filter((it) => it && it.prompt && it.prompt.trim())
       if (!list.length) return { ok: false, message: '프롬프트가 없습니다.' }
 
-      // ChatGPT·Flow 모두 각 프롬프트를 확장 작업 큐에 넣는다(임베드 창 봇벽/로그인 문제 회피).
-      // 확장이 사용자 크롬(로그인된 탭)에서 워커 풀(최대 3탭)로 생성 → 결과는 onImported 로 갤러리에 도착.
+      // Flow 는 flowbatch(신형 한 탭 파이프라인) 잡 하나로 변환해 처리.
+      // 구형 flow.js 경로는 manifest 가 labs.google/fx/* 를 제외해 폴링 주체가 없다(잡이 영원히 대기).
+      // I2I 참조 이미지는 flowengine 의 @[name] 에셋 규약으로 매핑 — 같은 dataUrl 은 한 번만 업로드.
+      if (source === 'flow') {
+        const assets: { name: string; dataUrl: string }[] = []
+        const nameByUrl = new Map<string, string>()
+        const prompts = list.map((item) => {
+          const tokens = (item.images || [])
+            .map((u) => {
+              let name = nameByUrl.get(u)
+              if (!name) {
+                name = 'r' + (nameByUrl.size + 1)
+                nameByUrl.set(u, name)
+                assets.push({ name, dataUrl: u })
+              }
+              return `@[${name}]`
+            })
+            .join(' ')
+          return tokens ? `${tokens} ${item.prompt.trim()}` : item.prompt.trim()
+        })
+        enqueueJob({
+          source: 'flowbatch',
+          prompt: prompts[0],
+          prompts,
+          aspect: aspect || '16:9',
+          assets
+        }).catch(() => {})
+        return { ok: true, count: prompts.length }
+      }
+
+      // ChatGPT 는 각 프롬프트를 개별 잡으로 큐잉(임베드 창 봇벽/로그인 문제 회피).
+      // 확장이 사용자 크롬(로그인된 탭)에서 워커 풀로 생성 → 결과는 onImported 로 갤러리에 도착.
       list.forEach((item) => {
         enqueueJob({
           source,
@@ -392,6 +481,71 @@ export function registerIpc(): void {
       return { ok: true, count: list.length }
     }
   )
+
+  // Flow 엔진 배치 — 프롬프트 배열 1개를 단일 'flowbatch' 작업으로 큐잉.
+  // 확장의 fe-controller 가 Flow 탭 하나에서 START_BATCH 로 파이프라인 생성, 결과는 onImported(source 'flow').
+  ipcMain.handle(
+    IPC.bridgeGenerateFlowBatch,
+    async (
+      _e,
+      prompts: string[],
+      assets?: { name: string; dataUrl: string }[],
+      aspect?: string
+    ): Promise<{ ok: boolean; message?: string }> => {
+      const list = (prompts || []).map((p) => (p || '').trim()).filter(Boolean)
+      if (!list.length) return { ok: false, message: '프롬프트가 없습니다.' }
+      const r = await enqueueJob({
+        source: 'flowbatch',
+        prompt: list[0],
+        prompts: list,
+        aspect: aspect || '9:16',
+        assets: assets && assets.length ? assets : []
+      })
+      return { ok: !!r.ok, message: r.message }
+    }
+  )
+
+  // Runway(Seedance 2.0) i2v — 'runway' 작업 큐잉. 확장 re-controller 가 처리, 결과는 onImported(source 'grok').
+  ipcMain.handle(
+    IPC.bridgeGenerateRunway,
+    async (
+      _e,
+      prompt: string,
+      imageDataUrl: string,
+      opts?: { aspect?: string; duration?: string }
+    ): Promise<{ ok: boolean; message?: string }> => {
+      if (!imageDataUrl) return { ok: false, message: '이미지가 필요합니다.' }
+      const ratio = opts?.aspect === '16:9' ? '16:9' : '9:16' // Seedance 는 9:16 / 16:9
+      const r = await enqueueJob({
+        source: 'runway',
+        prompt: prompt || '',
+        imageDataUrl,
+        aspect: ratio,
+        duration: opts?.duration || '5'
+      })
+      return { ok: !!r.ok, message: r.message }
+    }
+  )
+
+  // 유튜브 분석기 — YouTube Data API 로 검색 + 통계/구독자 + 지표 계산
+  ipcMain.handle(IPC.youtubeSearch, async (_e, opts: YoutubeSearchOpts) => {
+    try {
+      const items = await youtubeSearch(opts)
+      return { ok: true, items, quotaUsed: youtubeQuota() }
+    } catch (err) {
+      return { ok: false, message: String(err instanceof Error ? err.message : err) }
+    }
+  })
+
+  // 유튜브 채널 상세 분석 (등급/수익/참여/업로드 패턴)
+  ipcMain.handle(IPC.youtubeAnalyzeChannel, async (_e, opts: YoutubeChannelOpts) => {
+    try {
+      const analysis = await analyzeChannel(opts)
+      return { ok: true, analysis }
+    } catch (err) {
+      return { ok: false, message: String(err instanceof Error ? err.message : err) }
+    }
+  })
 
   // 이미지들을 순서대로 zip 으로 저장 (생성 순서 보존: 01_, 02_ … 접두어).
   // path(로컬 파일) 또는 dataUrl(카드뉴스 PNG 등 메모리 생성 이미지) 둘 다 지원.

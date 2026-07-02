@@ -67,6 +67,7 @@ export interface ScrollLayout {
   imgPadY: number
   imageZoom: number // 창 안에서 이미지 확대 배율(중앙 기준). 기본 1=전체 보임
   imageBordered: boolean // true=박스(테두리) 안 / false=그냥 배치(테두리 없음)
+  hasText: boolean // 텍스트(스크롤) 섹션 사용 여부 — false 면 텍스트 없이 미디어만
   section: Box // 텍스트 섹션 외곽 박스
   sectionBordered: boolean // true=텍스트창 테두리선 표시 / false=없음
   textSize: number
@@ -135,6 +136,7 @@ export function autoLayout(aspect: Aspect, hasMedia: boolean, hasTitle: boolean)
     imgPadY: 0,
     imageZoom: 1,
     imageBordered: true,
+    hasText: true,
     section,
     sectionBordered: true,
     textSize: 46,
@@ -440,7 +442,8 @@ export async function renderSpecFromLayout(
       mask: L.imageBordered ? renderRoundMaskPng(box.w, box.h, L.radius) : undefined
     })
   }
-  if (L.sectionBordered !== false) boxes.push(rb(L.section)) // 테두리는 켜져 있을 때만 (구 레이아웃=없음→있음)
+  const useText = L.hasText !== false // 구 레이아웃(hasText 없음)=텍스트 사용
+  if (useText && L.sectionBordered !== false) boxes.push(rb(L.section)) // 테두리는 켜져 있을 때만 (구 레이아웃=없음→있음)
 
   let titlePng: string | undefined
   const hasTitle = content.title.trim() !== '' || content.subtitle.trim() !== ''
@@ -458,8 +461,9 @@ export async function renderSpecFromLayout(
     ).dataUrl
   }
 
-  const txt = renderTextPng(content.text, L.textSize, promptLineH, inner.w, COLORS.text, L.align)
-  const travel = inner.h + txt.height
+  // 텍스트 섹션을 끄면(hasText=false) 빈 텍스트로 처리 → 스크롤 없이 미디어만
+  const txt = renderTextPng(useText ? content.text : '', L.textSize, promptLineH, inner.w, COLORS.text, L.align)
+  const travel = useText ? inner.h + txt.height : 0
 
   return {
     width: L.W,

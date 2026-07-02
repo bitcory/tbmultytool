@@ -14,6 +14,72 @@ export interface ApiKeys {
   gemini?: string
   elevenlabs?: string
   fal?: string
+  youtube?: string
+}
+
+/** 유튜브 분석기 검색 옵션 */
+export interface YoutubeSearchOpts {
+  query: string
+  max: number // 수량 (최대)
+  days: number // 기간(일)
+  region: string // 국가 코드 (KR 등)
+  order?: 'relevance' | 'viewCount' | 'date' // 정렬 (기본 viewCount). 채널/키워드 공통
+}
+
+/** 유튜브 분석 영상 1건 */
+export interface YoutubeVideo {
+  id: string
+  title: string
+  channel: string
+  channelId?: string // 채널 상세 분석 진입용
+  thumbnail: string
+  url: string
+  views: number
+  subscribers: number
+  publishedAt: string // ISO
+  durationSec: number
+  likes: number | null
+  comments: number | null
+  type: 'shorts' | 'long'
+  subViewRatio: number | null // 조회수/구독자
+  likeRate: number | null // 좋아요/조회수 %
+  commentRate: number | null // 댓글/조회수 %
+  categoryId?: string
+  estRevenue: { min: number; max: number } | null // 예상 수익(원)
+  cii: 'Great' | 'Good' | 'Bad'
+}
+
+/** 채널 상세 분석 (luha-master 방식 이식) */
+export interface YoutubeChannelAnalysis {
+  channelId: string
+  title: string
+  handle?: string
+  thumbnail: string
+  description: string
+  subscribers: number
+  totalViews: number
+  videoCount: number
+  publishedAt: string // ISO (채널 개설일)
+  rating: {
+    score: number // 0-100
+    grade: string // S+ ~ D
+    breakdown: { subscriber: number; view: number; engagement: number; consistency: number; growth: number }
+  }
+  revenue: {
+    monthly: { min: number; max: number }
+    yearly: { min: number; max: number }
+    perVideoAvg: { min: number; max: number }
+  }
+  engagement: { avgLikeRate: number; avgCommentRate: number; avgViewsPerVideo: number; subViewRate: number }
+  upload: { perWeek: number; perMonth: number; mostActiveDay: string; lastUpload: string }
+  videos: YoutubeVideo[] // 최근 영상(분석 대상)
+  quotaUsed: number // 세션 누적 API 사용량(대략치)
+}
+
+/** 채널 분석 요청 */
+export interface YoutubeChannelOpts {
+  channel: string // 채널ID(UC…) / @핸들 / 채널 URL / 채널명
+  max?: number // 분석할 최근 영상 수 (기본 50)
 }
 
 /** 화면비 */
@@ -38,7 +104,12 @@ export interface Scene {
   id: string
   index: number
   narration: string // 나레이션(자막) 텍스트
-  imagePrompt: string // 이미지 생성용 영문 프롬프트
+  imagePrompt: string // 이미지(첫 프레임) 생성용 영문 프롬프트
+  motionPrompt?: string // 영상(i2v) 모션 프롬프트 — 제품 특성에 맞춘 카메라/움직임 묘사
+  seedancePrompt?: string // Seedance 2.0용 멀티컷 디렉팅 프롬프트(Style/Dynamic CUT/Static/Audio/Total)
+  captions?: { at: string; hook: string; detail?: string }[] // 화면 자막(후킹 문구) — at=타임코드
+  role?: string // 세그먼트 역할(hook+design, features+cta 등)
+  sellingPoints?: string[] // 이 세그먼트의 셀링포인트
   imagePath?: string // 생성된 이미지 파일 경로
   audioPath?: string // 생성된 음성 파일 경로
   durationSec?: number // 음성 길이
@@ -55,7 +126,75 @@ export interface Project {
 }
 
 /** 확장으로부터 가져온 이미지/영상의 출처 ('scroll' = 앱 내부 스크롤영상 생성기, 'tistory' = 블로그 발행) */
-export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'tistory' | 'other'
+export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'tistory' | 'coupang' | 'flowbatch' | 'runway' | 'xiaohongshu' | 'other'
+
+// ── 샤오홍슈 소스찾기 ──
+export interface XhsSearchOpts {
+  keyword: string
+  days?: number // 최근 N일 (0=전체)
+  limit?: number // 수집 개수
+  sort?: 'hot' | 'time' | 'like' // 종합(인기)/최신/좋아요순
+}
+/** 검색 피드 카드(확장이 스크래핑) */
+export interface XhsCard {
+  noteId: string
+  url: string // xsec_token 포함 노트 URL
+  title: string
+  cover: string // 커버 이미지 URL
+  type: 'video' | 'image'
+  likes: number
+  author: string
+  duration?: string // mm:ss
+  publishedAt?: string
+}
+/** 노트 상세(메인 서비스가 fetch) */
+export interface XhsNote {
+  noteId: string
+  url: string
+  title: string
+  desc: string
+  type: 'video' | 'image'
+  author: string
+  likes: number
+  collects: number
+  comments: number
+  cover: string
+  images: string[]
+  videoUrl?: string
+  duration?: string
+}
+
+/** 쿠팡 상품페이지에서 확장(coupang.js)이 추출한 상품 정보 */
+export interface CoupangProduct {
+  productId?: string | null
+  url: string
+  name: string
+  price: number | null
+  originalPrice: number | null
+  discount: number | null
+  rating: number | null
+  reviewCount: number | null
+  images: string[] // 대표/썸네일 이미지 URL
+  videos?: string[] // 제품 영상 URL (있을 때만 — mp4/m3u8)
+  reviews?: CoupangReview[] // 상품평 (평점 높은 순)
+  attributes?: CoupangAttribute[] // 속성 만족도 요약 (내구성/편리성 등)
+  capturedAt?: string
+}
+
+/** 개별 상품평 */
+export interface CoupangReview {
+  rating: number | null
+  date?: string
+  title?: string
+  body?: string
+}
+
+/** 속성 만족도 한 줄 (예: 전송 속도 / 아주 빨라요 / 100) */
+export interface CoupangAttribute {
+  label: string
+  value: string
+  percent: number | null
+}
 
 /** 블로그 발행 작업 페이로드 (앱→블로그 확장). 본문은 text/image 블록 순서 그대로. */
 export interface BlogPostPayload {
@@ -147,12 +286,16 @@ export interface VideoGenSettings {
 export interface BridgeJob {
   id: string
   source: ImageSource
-  kind?: 'image' | 'text' | 'blog' // 기본 image. text=ChatGPT 텍스트 회수, blog=티스토리 발행
+  kind?: 'image' | 'text' | 'blog' | 'search' // 기본 image. text=ChatGPT 텍스트 회수, blog=티스토리 발행, search=샤오홍슈 검색
+  xhsSearch?: XhsSearchOpts // search 잡: 샤오홍슈 검색 조건
   prompt: string
+  prompts?: string[] // flowbatch: 한 작업에 여러 프롬프트(배치) — Flow 엔진이 한 탭에서 파이프라인 생성
+  assets?: { name: string; dataUrl: string }[] // flowbatch: 프롬프트의 @[name] 참조에 대응하는 업로드 이미지
   aspect?: string // '16:9' 등
   referenceImages?: string[] // I2I 참조 이미지 dataURL 배열
   imageDataUrl?: string // Grok 이미지→영상: 입력 이미지 dataURL
   videoSettings?: VideoGenSettings // Grok: 길이/해상도/비율
+  duration?: string // runway: 영상 길이(초)
   musicPayload?: MusicGenPayload // Suno: 음악 생성 입력
   blogPayload?: BlogPostPayload // blog 잡: 티스토리에 발행할 제목/본문/이미지/태그
 }
@@ -214,12 +357,20 @@ export const IPC = {
   bridgeGenerateScroll: 'bridge:generateScroll', // 앱 내부 스크롤영상 생성(ffmpeg, 확장 불필요)
   bridgeGenerateMusic: 'bridge:generateMusic', // SUNO 음악 생성 자동화
   bridgeGenerateBatch: 'bridge:generateBatch', // 멀티 프롬프트 배치 이미지 생성(T2I/I2I)
+  bridgeGenerateFlowBatch: 'bridge:generateFlowBatch', // Flow 엔진(한 탭 파이프라인) 배치 생성
+  bridgeGenerateRunway: 'bridge:generateRunway', // Runway(Seedance 2.0) i2v 생성
   bridgeGenerateBlog: 'bridge:generateBlog', // 티스토리 블로그 자동 발행(확장이 에디터에 주입)
   bridgeCancel: 'bridge:cancel', // 진행/대기 중인 확장 생성 작업 전체 취소
   bridgeExportZip: 'bridge:exportZip', // 이미지들을 순서대로 zip 으로 저장
   progress: 'progress', // 이벤트 채널
   imageImported: 'bridge:imageImported', // 이벤트 채널 (확장→앱 이미지 도착)
-  bridgeProgress: 'bridge:progress' // 이벤트 채널 (자동 생성 진행 상황)
+  bridgeProgress: 'bridge:progress', // 이벤트 채널 (자동 생성 진행 상황)
+  productImported: 'bridge:productImported', // 이벤트 채널 (확장→앱 쿠팡 상품정보 도착)
+  youtubeSearch: 'youtube:search', // 유튜브 분석기 검색
+  youtubeAnalyzeChannel: 'youtube:analyzeChannel', // 채널 상세 분석
+  xhsSearch: 'xhs:search', // 샤오홍슈 검색(브라우저 확장에 작업 전달)
+  xhsDownload: 'xhs:download', // 샤오홍슈 노트 미디어 다운로드
+  xhsResults: 'xhs:results' // 이벤트 채널 (확장→앱 검색결과 도착)
 } as const
 
 /** preload가 contextBridge로 노출하는 API 형태 */
@@ -301,6 +452,12 @@ export interface ElectronAPI {
       imageDataUrl: string,
       settings?: VideoGenSettings
     ) => Promise<{ ok: boolean; message?: string }>
+    /** Runway(Seedance 2.0) 이미지→영상. aspect 는 '9:16' | '16:9'. 결과는 onImported(source 'grok' 영상)로 도착 */
+    generateRunway: (
+      prompt: string,
+      imageDataUrl: string,
+      opts?: { aspect?: string; duration?: string }
+    ) => Promise<{ ok: boolean; message?: string }>
     /** 스크롤영상 생성: 렌더러 Canvas 사양 → ffmpeg 합성. 결과는 onImported(영상)로 갤러리에 도착 */
     generateScroll: (
       spec: ScrollRenderSpec
@@ -315,6 +472,13 @@ export interface ElectronAPI {
       items: { prompt: string; images?: string[] }[],
       aspect?: string
     ) => Promise<{ ok: boolean; count?: number; message?: string }>
+    /** Flow 엔진(TOOLB FLOW 이식)으로 한 탭에서 여러 프롬프트를 파이프라인 생성. 결과는 onImported(source 'flow')로 도착.
+     *  prompts 는 이미 @[name] 참조 토큰을 포함하고, assets 는 그 토큰에 대응하는 이미지(name↔dataUrl). */
+    generateFlowBatch: (
+      prompts: string[],
+      assets?: { name: string; dataUrl: string }[],
+      aspect?: string
+    ) => Promise<{ ok: boolean; message?: string }>
     /** 이미지들을 순서대로(01_, 02_ …) zip 으로 저장. path(파일) 또는 dataUrl 둘 다 지원. 저장 다이얼로그 표시 */
     exportZip: (
       items: { path?: string; dataUrl?: string; name: string }[],
@@ -326,6 +490,21 @@ export interface ElectronAPI {
     onImported: (cb: (img: ImportedImage) => void) => () => void
     /** 자동 생성 진행 상황 메시지 */
     onProgress: (cb: (message: string) => void) => () => void
+    /** 확장이 추출한 쿠팡 상품정보가 도착할 때마다 호출 */
+    onProduct: (cb: (product: CoupangProduct) => void) => () => void
   }
   onProgress: (cb: (e: ProgressEvent) => void) => () => void
+  /** 유튜브 분석기 */
+  youtube: {
+    search: (opts: YoutubeSearchOpts) => Promise<{ ok: boolean; items?: YoutubeVideo[]; quotaUsed?: number; message?: string }>
+    analyzeChannel: (opts: YoutubeChannelOpts) => Promise<{ ok: boolean; analysis?: YoutubeChannelAnalysis; message?: string }>
+  }
+  xhs: {
+    /** 검색 작업을 확장에 전달(크롬 샤오홍슈에서 스크래핑). 결과는 onResults 로 도착 */
+    search: (opts: XhsSearchOpts) => Promise<{ ok: boolean; message?: string }>
+    /** 노트 미디어(영상/이미지)를 갤러리에 다운로드 */
+    download: (url: string) => Promise<{ ok: boolean; saved: number; message?: string }>
+    /** 확장이 보낸 검색결과 카드 수신 */
+    onResults: (cb: (cards: XhsCard[]) => void) => () => void
+  }
 }

@@ -14,10 +14,10 @@ const appIcon = app.isPackaged
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1600,
+    height: 940,
+    minWidth: 1200,
+    minHeight: 680,
     title: 'TB MTOOL',
     icon: appIcon,
     backgroundColor: '#0f1115',
@@ -61,9 +61,14 @@ app.whenReady().then(async () => {
 
   // 크롬 확장 → 앱 이미지 수신 서버 시작. 새 이미지가 오면 렌더러로 push.
   try {
-    await startImageBridge((img) => {
-      mainWindow?.webContents.send(IPC.imageImported, img)
-    })
+    await startImageBridge(
+      (img) => {
+        mainWindow?.webContents.send(IPC.imageImported, img)
+      },
+      (product) => {
+        mainWindow?.webContents.send(IPC.productImported, product)
+      }
+    )
   } catch (err) {
     console.error('[imageBridge] 시작 실패:', err)
   }

@@ -1068,7 +1068,8 @@ export default function ScrollVideo() {
                   </div>
                 )}
 
-                {/* 텍스트 섹션 */}
+                {/* 텍스트 섹션 (hasText 일 때만) */}
+                {layout.hasText !== false && (
                 <div
                   onPointerDown={(e) => onPointerDown(e, 'section', 'move')}
                   style={{
@@ -1121,6 +1122,7 @@ export default function ScrollVideo() {
                   </div>
                   <div onPointerDown={(e) => onPointerDown(e, 'section', 'resize')} style={handleStyle} />
                 </div>
+                )}
 
                 {/* 제목 + 부제목 (맨 위 — ffmpeg 와 동일하게 최상단 합성) */}
                 {(title.trim() !== '' || subtitle.trim() !== '') && (
@@ -1394,6 +1396,19 @@ export default function ScrollVideo() {
 
             {selected === 'section' && (
               <>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                  {layout.hasText === false ? (
+                    <button className="btn secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => patch({ hasText: true })}>＋ 텍스트 추가</button>
+                  ) : (
+                    <button className="btn ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => patch({ hasText: false })}>✕ 텍스트 제거</button>
+                  )}
+                </div>
+                {layout.hasText === false ? (
+                  <p className="igen-note" style={{ textAlign: 'center', padding: '24px 0' }}>
+                    텍스트 없이 미디어(영상/이미지)만으로 영상을 만듭니다.<br />텍스트가 필요하면 위 ‘＋ 텍스트 추가’를 누르세요.
+                  </p>
+                ) : (
+                <>
                 <textarea
                   className="igen-textarea"
                   rows={5}
@@ -1439,6 +1454,8 @@ export default function ScrollVideo() {
                   </div>
                 </div>
                 <p className="igen-note">미리보기에서 텍스트 박스를 드래그해 위치·크기를 조절할 수 있어요.</p>
+                </>
+                )}
               </>
             )}
 

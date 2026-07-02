@@ -123,23 +123,27 @@ function extractJson(text: string): AiCardNews | null {
 }
 
 const S = {
-  panel: { borderBottom: '1px solid #2a2e3a', background: '#15171f', padding: '14px 18px', flexShrink: 0 } as const,
-  head: { display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', fontWeight: 800, fontSize: 14 } as const,
-  row: { display: 'flex', gap: 10, marginTop: 12, alignItems: 'flex-start' } as const,
+  panel: { borderBottom: '1px solid #2a2e3a', background: '#15171f', padding: '16px 22px', flexShrink: 0 } as const,
+  head: { display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', userSelect: 'none', fontWeight: 800, fontSize: 14.5 } as const,
+  headMsg: { flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 400, color: '#8c93a6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const,
+  row: { display: 'flex', gap: 16, marginTop: 16, alignItems: 'flex-start' } as const,
+  col: { flex: 1.4, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 } as const,
   ta: {
     flex: 1, background: '#1d2029', border: '1px solid #2a2e3a', borderRadius: 9, color: '#f4f5f7',
-    padding: '10px 12px', fontFamily: 'inherit', fontSize: 13.5, resize: 'vertical', minHeight: 64
+    padding: '10px 12px', fontFamily: 'inherit', fontSize: 13.5, resize: 'vertical', minHeight: 72
   } as const,
-  side: { display: 'flex', flexDirection: 'column', gap: 8, width: 210, flexShrink: 0 } as const,
-  ctl: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#8c93a6' } as const,
-  sel: { background: '#1d2029', border: '1px solid #2a2e3a', borderRadius: 8, color: '#f4f5f7', padding: '6px 8px', fontFamily: 'inherit', fontSize: 12.5 } as const,
+  side: { display: 'flex', flexDirection: 'column', gap: 10, width: 232, flexShrink: 0 } as const,
+  ctl: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12.5, color: '#8c93a6' } as const,
+  chk: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#8c93a6', cursor: 'pointer', padding: '2px 0' } as const,
+  sel: { width: 148, background: '#1d2029', border: '1px solid #2a2e3a', borderRadius: 8, color: '#f4f5f7', padding: '7px 8px', fontFamily: 'inherit', fontSize: 12.5 } as const,
   btn: {
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', borderRadius: 9,
     border: 'none', background: '#3d5afe', color: '#fff', fontFamily: 'inherit', fontWeight: 800, fontSize: 13, cursor: 'pointer'
   } as const,
-  msg: { marginTop: 10, fontSize: 12.5, color: '#8c93a6' } as const,
+  msg: { marginTop: 12, fontSize: 12.5, color: '#8c93a6' } as const,
+  note: { marginTop: 6, fontSize: 11.5, color: '#6b7284' } as const,
   label: { fontSize: 11, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: '#8c93a6' } as const,
-  hint: { fontSize: 11.5, color: '#8c93a6', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const
+  hint: { fontSize: 11.5, color: '#6b7284', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } as const
 }
 
 export default function CardNews() {
@@ -326,16 +330,16 @@ export default function CardNews() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={S.panel}>
+      <div style={S.panel} className="cn-panel">
         <div style={S.head} onClick={() => setOpen((o) => !o)}>
           <Wand2 size={15} color="#3d5afe" /> AI 카드뉴스 자동 생성
-          {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-          {!open && msg && <span style={{ ...S.msg, marginTop: 0, fontWeight: 400 }}>{msg}</span>}
+          {!open && msg ? <span style={S.headMsg}>{msg}</span> : <span style={{ flex: 1 }} />}
+          {open ? <ChevronUp size={15} color="#8c93a6" /> : <ChevronDown size={15} color="#8c93a6" />}
         </div>
         {open && (
           <>
             <div style={S.row}>
-              <div style={{ flex: 1.4, display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <div style={S.col}>
                 <div style={S.label}>카드뉴스 내용</div>
                 <textarea
                   style={S.ta}
@@ -347,7 +351,7 @@ export default function CardNews() {
                 <div style={S.hint}>예) 챗GPT 프롬프트 잘 쓰는 법 5가지 — 최신 주제는 핵심 포인트를 직접 적어주세요</div>
               </div>
               {withImages && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ ...S.col, flex: 1 }}>
                   <div style={S.label}>배경 스타일</div>
                   <textarea
                     style={S.ta}
@@ -386,7 +390,7 @@ export default function CardNews() {
                     ))}
                   </select>
                 </label>
-                <label style={S.ctl}>
+                <label style={S.chk}>
                   <input
                     type="checkbox"
                     checked={withImages}
@@ -395,7 +399,7 @@ export default function CardNews() {
                   />
                   1:1 배경 이미지도 생성
                 </label>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                   <button style={{ ...S.btn, flex: 1, opacity: running ? 0.6 : 1 }} onClick={run} disabled={running}>
                     {running ? <Loader2 size={14} className="igen-spin" /> : <Sparkles size={14} />}
                     {running ? '생성 중…' : '자동 생성'}
@@ -409,9 +413,7 @@ export default function CardNews() {
               </div>
             </div>
             {msg && <div style={S.msg}>{msg}</div>}
-            <div style={{ ...S.msg, marginTop: 4, fontSize: 11.5 }}>
-              ※ 크롬에 ChatGPT 로그인 + TB MTOOL 확장이 필요
-            </div>
+            <div style={S.note}>※ 크롬에 ChatGPT 로그인 + TB MTOOL 확장이 필요</div>
           </>
         )}
       </div>

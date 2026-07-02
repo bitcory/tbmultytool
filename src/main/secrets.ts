@@ -41,6 +41,7 @@ export async function keysStatus(): Promise<Record<keyof ApiKeys, boolean>> {
     openai: !!k.openai,
     gemini: !!k.gemini,
     elevenlabs: !!k.elevenlabs,
-    fal: !!k.fal
+    fal: !!k.fal,
+    youtube: !!k.youtube
   }
 }
