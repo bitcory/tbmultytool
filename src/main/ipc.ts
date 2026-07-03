@@ -7,6 +7,7 @@ import type {
   BlogPostPayload,
   BridgeJobResult,
   ImageSource,
+  InpockPostPayload,
   Project,
   ProjectOptions,
   Scene,
@@ -17,6 +18,7 @@ import type {
 } from '@shared/types'
 import { IPC } from '@shared/types'
 import { keysStatus, loadKeys, saveKeys } from './secrets'
+import { createPartnersDeeplink } from './services/partners'
 import { generateScript } from './services/script'
 import { generateImage } from './services/image'
 import { generateTts } from './services/tts'
@@ -47,14 +49,15 @@ import type { YoutubeSearchOpts, YoutubeChannelOpts, XhsSearchOpts } from '@shar
 // 소스별 임베드 창 추적 (자동화 명령을 보낼 대상)
 const embedded = new Map<ImageSource, BrowserWindow>()
 
-const SOURCE_URL: Record<'chatgpt' | 'flow' | 'grok' | 'suno' | 'flowbatch' | 'runway' | 'xiaohongshu', string> = {
+const SOURCE_URL: Record<'chatgpt' | 'flow' | 'grok' | 'suno' | 'flowbatch' | 'runway' | 'xiaohongshu' | 'inpock', string> = {
   chatgpt: 'https://chatgpt.com/',
   flow: 'https://labs.google/fx/ko/tools/flow',
   grok: 'https://grok.com/imagine',
   suno: 'https://suno.com/create',
   flowbatch: 'https://labs.google/fx/ko/tools/flow', // Flow 엔진(한 탭 파이프라인) 배치
   runway: 'https://app.runway.com/', // Runway Seedance 2.0
-  xiaohongshu: 'https://www.xiaohongshu.com/explore' // 샤오홍슈 소스찾기(확장이 검색 페이지로 이동)
+  xiaohongshu: 'https://www.xiaohongshu.com/explore', // 샤오홍슈 소스찾기(확장이 검색 페이지로 이동)
+  inpock: 'https://link.inpock.co.kr/admin/block/link/post' // 인포크링크 링크블록 등록 폼(확장이 채움)
 }
 
 function sourceForUrl(url: string): ImageSource {
@@ -174,6 +177,17 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.keysStatus, () => keysStatus())
   ipcMain.handle(IPC.keysGet, () => loadKeys())
   ipcMain.handle(IPC.keysSet, (_e, keys: ApiKeys) => saveKeys(keys))
+
+  // --- 쿠팡파트너스 제휴 단축링크 발급 (Open API) ---
+  ipcMain.handle(IPC.partnersDeeplink, (_e, productUrl: string) => createPartnersDeeplink(productUrl))
+
+  // --- 인포크링크 링크블록 자동 게시 (확장이 link.inpock.co.kr 관리자에서 등록) ---
+  ipcMain.handle(IPC.inpockPost, async (_e, payload: InpockPostPayload): Promise<BridgeJobResult> => {
+    if (!payload?.url?.trim()) return { ok: false, message: '연결할 링크(제휴링크)가 없습니다.' }
+    if (!payload?.title?.trim()) return { ok: false, message: '타이틀(제품명)이 없습니다.' }
+    if (!payload?.imageDataUrl) return { ok: false, message: '썸네일 이미지가 없습니다. 상품을 먼저 분석하세요.' }
+    return await enqueueJob({ source: 'inpock', kind: 'inpock', prompt: payload.title, inpockPayload: payload })
+  })
 
   // --- 생성 파이프라인 ---
   ipcMain.handle(IPC.genScript, (_e, opts: ProjectOptions) => generateScript(opts))

@@ -7,7 +7,11 @@ let appBase = null // 찾은 앱 주소 캐시
 async function ping(base) {
   try {
     const r = await fetch(base + '/ping', { method: 'GET' })
-    return r.ok
+    if (!r.ok) return false
+    // 같은 포트 대역(47321~)을 쓰는 다른 앱(예: ai-video-proposal)이 먼저 응답할 수 있으므로
+    // 반드시 이 앱(ai-video-studio)인지 확인하고 아니면 다음 포트로 넘어간다.
+    const j = await r.json().catch(() => null)
+    return !!j && j.app === 'ai-video-studio'
   } catch {
     return false
   }

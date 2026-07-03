@@ -19,6 +19,10 @@ const api: ElectronAPI = {
     set: (keys: ApiKeys) => ipcRenderer.invoke(IPC.keysSet, keys),
     get: () => ipcRenderer.invoke(IPC.keysGet)
   },
+  partners: {
+    deeplink: (productUrl: string) => ipcRenderer.invoke(IPC.partnersDeeplink, productUrl),
+    inpockPost: (payload) => ipcRenderer.invoke(IPC.inpockPost, payload)
+  },
   generate: {
     script: (opts: ProjectOptions) => ipcRenderer.invoke(IPC.genScript, opts),
     image: (scene: Scene, opts: ProjectOptions, outDir: string) =>

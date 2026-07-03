@@ -39,7 +39,7 @@
     // MAIN world로 이미지 데이터 전달
     window.postMessage(
       {
-        __toolb: 'DROP_CHAR',
+        __toolb: 'DROP_CHAR_TBM',
         imageData: message.imageData,
         fileName: message.fileName
       },
@@ -58,7 +58,7 @@
     }
 
     function onResult(evt) {
-      if (!evt.data || evt.data.__toolb !== 'DROP_CHAR_RESULT') return;
+      if (!evt.data || evt.data.__toolb !== 'DROP_CHAR_RESULT_TBM') return;
       // 로그는 호출자(upload-handler / video-ext)가 응답을 보고 직접 출력
       finish({
         success: evt.data.success,

@@ -144,6 +144,48 @@
     return [...urls].slice(0, 5)
   }
 
+  // 신형 마크업(twc- Tailwind, 클래스 수시 변경)용 가격 추출 — 클래스 대신 스타일 휴리스틱.
+  // 판매가: 취소선 없는 "N원" 중 글자가 가장 큰 것(구매박스의 큰 빨간 가격).
+  // 원가: 취소선(line-through / del·s 조상) 있는 "N원" 중 판매가와 세로로 가장 가까운 것.
+  // 할인율: 판매가 근처의 "55%" 형태 단독 텍스트.
+  function extractPricesByStyle() {
+    const cands = []
+    document.querySelectorAll('span, strong, div, del, s, b, em, ins').forEach((el) => {
+      if (el.childElementCount > 2) return
+      const t = (el.textContent || '').trim()
+      if (!/^[\d,]{2,}원$/.test(t)) return
+      const v = numFrom(t)
+      if (!v || v < 100) return
+      const r = el.getBoundingClientRect()
+      if (r.width <= 0 || r.height <= 0) return
+      const absTop = r.top + window.scrollY
+      if (absTop > 3000) return // 구매박스는 페이지 상단 — 리뷰/추천상품 가격 제외
+      const cs = getComputedStyle(el)
+      const lineThrough =
+        ((cs.textDecorationLine || cs.textDecoration || '').indexOf('line-through') !== -1) || !!el.closest('del, s, strike')
+      cands.push({ v, absTop, fs: parseFloat(cs.fontSize) || 0, lineThrough })
+    })
+    if (!cands.length) return {}
+    const sale = cands.filter((c) => !c.lineThrough).sort((a, b) => b.fs - a.fs || a.absTop - b.absTop)[0]
+    if (!sale) return {}
+    const orig = cands
+      .filter((c) => c.lineThrough && c.v > sale.v)
+      .sort((a, b) => Math.abs(a.absTop - sale.absTop) - Math.abs(b.absTop - sale.absTop))[0]
+    // 판매가 근처(세로 ±200px)의 "NN%" 단독 요소 = 할인율
+    let discount = null
+    document.querySelectorAll('span, div, b, em, strong').forEach((el) => {
+      if (discount != null || el.childElementCount > 0) return
+      const t = (el.textContent || '').trim()
+      const m = t.match(/^(\d{1,2})\s*%$/)
+      if (!m) return
+      const r = el.getBoundingClientRect()
+      if (r.width <= 0) return
+      const absTop = r.top + window.scrollY
+      if (Math.abs(absTop - sale.absTop) <= 200) discount = parseInt(m[1], 10)
+    })
+    return { price: sale.v, originalPrice: orig ? orig.v : null, discount }
+  }
+
   // 별점: 보통 너비 %(예: width:96%)로 표현 → 5점 만점 환산
   function extractRating() {
     const star = qs(['.rating-star-num', '.rds-rating__star-foreground', '[class*="rating"] [style*="width"]'])
@@ -224,7 +266,9 @@
   function extractProduct() {
     const ld = fromJsonLd()
     const name = extractName() || ld.name
-    // 가격: 셀렉터 → 실패 시 JSON-LD offers.price
+    // 가격: 스타일 휴리스틱(신형 마크업) → 구형 셀렉터 → JSON-LD offers.price.
+    // JSON-LD 는 할인 전 정가를 넣는 경우가 있어 마지막 폴백으로만 쓴다.
+    const styled = extractPricesByStyle()
     let price = numFrom(
       text([
         '.total-price strong',
@@ -233,11 +277,19 @@
         '.price-amount'
       ])
     )
-    if (price == null) price = ld.price
     let originalPrice = numFrom(text(['.origin-price', '.prod-origin-price', 'del.origin-price']))
+    if (styled.price != null && styled.originalPrice != null) {
+      // 판매가+취소선 원가를 모두 찾음 = 확실한 할인 상품 — 스타일 결과 우선
+      price = styled.price
+      originalPrice = styled.originalPrice
+    } else {
+      if (price == null) price = styled.price != null ? styled.price : ld.price
+      if (originalPrice == null) originalPrice = styled.originalPrice != null ? styled.originalPrice : null
+    }
     // 원가가 현재가보다 낮거나 같으면(잘못 잡힘) 버림
     if (originalPrice != null && price != null && originalPrice <= price) originalPrice = null
     let discount = numFrom(text(['.discount-percentage', '.prod-discount-rate']))
+    if (discount == null && styled.discount != null) discount = styled.discount
     // 할인율 못 찾고 원가>현재가면 계산
     if (discount == null && price && originalPrice && originalPrice > price) {
       discount = Math.round((1 - price / originalPrice) * 100)

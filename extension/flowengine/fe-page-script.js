@@ -362,12 +362,12 @@
 
   function sendEvent(payload) {
     try {
-      window.postMessage({ source: 'flowbulk-page', type: 'EVENT', payload: payload }, '*');
+      window.postMessage({ source: 'flowbulk-page-tbm', type: 'EVENT', payload: payload }, '*');
     } catch (_) { /* noop */ }
   }
   function sendResponse(payload) {
     try {
-      window.postMessage({ source: 'flowbulk-page', type: 'RESPONSE', payload: payload }, '*');
+      window.postMessage({ source: 'flowbulk-page-tbm', type: 'RESPONSE', payload: payload }, '*');
     } catch (_) { /* noop */ }
   }
   function log(text, level) {
@@ -700,7 +700,7 @@
    *                       각 글자 사이 10~25ms 랜덤 jitter (사람 타이핑 모방)
    *
    * [tag] (예: [캐릭터]) 가 있는 레거시 프롬프트는 drop-handler 의
-   * __toolbTypePrompt 를 쓴다 (인라인 @멘션 경로).
+   * __toolbTypePromptTBM 를 쓴다 (인라인 @멘션 경로).
    * @[이름] 이 있는 NB2 포맷은 여기서 자산 첨부 후 원문 그대로 타이핑.
    * ════════════════════════════════════════════ */
 
@@ -1378,7 +1378,7 @@
         //     (b) 프롬프트의 @[이름] 토큰 — assetMode 에 따라 분기:
         //         - 'plus'   : + 버튼으로 첨부 후 본문은 @[...] 제거한 clean text 로 타이핑
         //         - 'mention': + 버튼 사용 안 함. 본문을 토큰 단위로 쪼개서
-        //                      @ 인라인 피커로 삽입 (__toolbTypePrompt 재활용).
+        //                      @ 인라인 피커로 삽입 (__toolbTypePromptTBM 재활용).
         var nbRefs = (parsed.assetNames || []).slice();
         var hasNBRef = nbRefs.length > 0;
 
@@ -1416,14 +1416,14 @@
         //     - hasNBRef + assetMode='plus'    : 본문에서 @[...] 토큰 제거 후 평문 타이핑
         //                                        (NB2 Mode B 와 같되, 찌꺼기 문자열까지 정리)
         //     - hasNBRef + assetMode='mention' : @[이름] → [__ToolBTag::이름] 변환 후
-        //                                        __toolbTypePrompt 로 인라인 @ 피커 경로 (NB2 Mode A)
-        //     - [태그] (@ 없음)                 : __toolbTypePrompt 로 레거시 인라인 멘션
+        //                                        __toolbTypePromptTBM 로 인라인 @ 피커 경로 (NB2 Mode A)
+        //     - [태그] (@ 없음)                 : __toolbTypePromptTBM 로 레거시 인라인 멘션
         //     - 아무 태그도 없음                : 평문 타이핑
         var textWithoutAt = promptText.replace(/@\[[^\]]+\]/g, '');
         var hasLegacyTag = /\[[^\]]+\]/.test(textWithoutAt);
 
         if (hasNBRef && assetMode === 'mention' &&
-            typeof window.__toolbTypePrompt === 'function') {
+            typeof window.__toolbTypePromptTBM === 'function') {
           // NB2 Mode A 경로. @[검사] → [__ToolBTag::검사] 로 바꿔서
           // drop-handler 의 기존 @ 피커 파이프라인을 재활용.
           var mentionScript = promptText.replace(
@@ -1431,7 +1431,7 @@
           );
           log(label + ' @ 인라인 모드로 입력', 'info');
           try {
-            await window.__toolbTypePrompt(mentionScript);
+            await window.__toolbTypePromptTBM(mentionScript);
           } catch (mErr) {
             // 인라인 실패 시 Mode B 로 폴백: + 버튼으로 에셋 첨부하고
             // 본문은 @[...] 제거한 텍스트로 타이핑.
@@ -1447,8 +1447,8 @@
           // NB2 Mode B (+버튼) — @[...] 토큰은 이미 + 버튼으로 첨부됐으므로
           // 본문에서 제거한 clean text 만 타이핑.
           await setPromptText(stripAtTokens(promptText));
-        } else if (hasLegacyTag && typeof window.__toolbTypePrompt === 'function') {
-          await window.__toolbTypePrompt(promptText);
+        } else if (hasLegacyTag && typeof window.__toolbTypePromptTBM === 'function') {
+          await window.__toolbTypePromptTBM(promptText);
         } else {
           await setPromptText(promptText);
         }
@@ -1541,7 +1541,7 @@
     if (window.__toolbPageToken !== MY_PAGE_TOKEN) return;
     if (evt.source !== window) return;
     var d = evt.data;
-    if (!d || d.source !== 'flowbulk-bridge') return;
+    if (!d || d.source !== 'flowbulk-bridge-tbm') return;
     var msg = d.payload;
     if (!msg || !msg.type) return;
 

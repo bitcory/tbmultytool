@@ -1,5 +1,5 @@
 // drop-handler.js — MAIN world (v1.4.9)
-// (1) __toolbTypePrompt: [tag] → @ → 자산 다이얼로그 → 검색 → 클릭 방식
+// (1) __toolbTypePromptTBM: [tag] → @ → 자산 다이얼로그 → 검색 → 클릭 방식
 //     (v1.4.8 재작성 — NB2 Mode A 와 동일 경로. Flow 의 @ 는 인라인 멘션이
 //      아니라 + 버튼과 같은 자산 다이얼로그를 연다.)
 // (2) 사이드패널 "첨부" 버튼: 실제 이미지 드롭
@@ -657,10 +657,10 @@
     return true;
   }
 
-  window.__toolbTypePrompt = async function (promptText) {
+  window.__toolbTypePromptTBM = async function (promptText) {
     // NFC 정규화: macOS NFD 한글 → NFC 로 맞춘다 (Slate/Flow 검색 모두 NFC 기준)
     promptText = nfc(promptText);
-    console.log('[ToolB] __toolbTypePrompt:', promptText);
+    console.log('[ToolB] __toolbTypePromptTBM:', promptText);
 
     var el = findPromptInput();
     if (!el) throw new Error('프롬프트 입력창을 찾을 수 없습니다');
@@ -911,7 +911,7 @@
     console.log('[ToolB] 프롬프트 입력 완료');
   };
 
-  console.log('[ToolB] __toolbTypePrompt 등록 완료');
+  console.log('[ToolB] __toolbTypePromptTBM 등록 완료');
 
   /* ════════════════════════════════════════════
      이하: 사이드패널 "첨부" 버튼 → 실제 이미지 드롭
@@ -1118,7 +1118,7 @@
     var waitRes = await waitForLibraryTileIncrease(baselineTiles, 30000);
     if (waitRes.ok) {
       console.log('[ToolB] 업로드 반영 확인 — 타일 ' + baselineTiles + ' → ' + waitRes.count);
-      // Flow 의 검색 인덱스 안정화 (피커가 바로 찾게). 실제 매칭은 __toolbTypePrompt 에서 재시도 루프로 보장.
+      // Flow 의 검색 인덱스 안정화 (피커가 바로 찾게). 실제 매칭은 __toolbTypePromptTBM 에서 재시도 루프로 보장.
       await sleep(800);
     } else {
       console.warn('[ToolB] 업로드 타일 미감지 (30s 타임아웃). 라이브러리 뷰가 없거나 업로드가 실패했을 수 있음. 진행은 계속함.');
@@ -1133,18 +1133,18 @@
   window.addEventListener('message', async function (evt) {
     // v1.4.9 sentinel: 재로드로 교체된 구 인스턴스라면 즉시 탈출
     if (window.__toolbDropHandlerToken !== MY_DROP_TOKEN) return;
-    if (!evt.data || evt.data.__toolb !== 'DROP_CHAR') return;
+    if (!evt.data || evt.data.__toolb !== 'DROP_CHAR_TBM') return;
     try {
       var result = await attachCharacterImage(evt.data.imageData, evt.data.fileName);
       window.postMessage({
-        __toolb: 'DROP_CHAR_RESULT',
+        __toolb: 'DROP_CHAR_RESULT_TBM',
         success: true,
         method: result && result.method
       }, '*');
     } catch (err) {
       console.warn('[ToolB] 첨부 실패:', err && err.message);
       window.postMessage({
-        __toolb: 'DROP_CHAR_RESULT',
+        __toolb: 'DROP_CHAR_RESULT_TBM',
         success: false,
         error: err && err.message || String(err)
       }, '*');

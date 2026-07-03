@@ -147,13 +147,13 @@
       const onR = (evt) => {
         if (evt.source !== window) return
         const d = evt.data
-        if (!d || d.__toolb !== 'DROP_CHAR_RESULT') return
+        if (!d || d.__toolb !== 'DROP_CHAR_RESULT_TBM') return
         done = true
         window.removeEventListener('message', onR)
         resolve(!!d.success)
       }
       window.addEventListener('message', onR)
-      window.postMessage({ __toolb: 'DROP_CHAR', imageData: dataUrl, fileName: fileName }, '*')
+      window.postMessage({ __toolb: 'DROP_CHAR_TBM', imageData: dataUrl, fileName: fileName }, '*')
       setTimeout(() => {
         if (!done) {
           window.removeEventListener('message', onR)
@@ -169,7 +169,7 @@
     onEvent = (evt) => {
       if (evt.source !== window) return
       const d = evt.data
-      if (!d || d.source !== 'flowbulk-page' || d.type !== 'EVENT') return
+      if (!d || d.source !== 'flowbulk-page-tbm' || d.type !== 'EVENT') return
       const p = d.payload || {}
       if (p.type === 'DOWNLOAD_IMAGE' && p.url) {
         imgCount++
@@ -237,7 +237,7 @@
     // 2) START_BATCH 직접 전달 (같은 window)
     window.postMessage(
       {
-        source: 'flowbulk-bridge',
+        source: 'flowbulk-bridge-tbm',
         payload: {
           type: 'START_BATCH',
           settings: {
@@ -266,7 +266,7 @@
       if (currentJobId) {
         const c = await send({ type: 'check-cancel', id: currentJobId })
         if (c && c.canceled) {
-          window.postMessage({ source: 'flowbulk-bridge', payload: { type: 'STOP_BATCH' } }, '*')
+          window.postMessage({ source: 'flowbulk-bridge-tbm', payload: { type: 'STOP_BATCH' } }, '*')
           log('취소됨 — STOP_BATCH')
           cleanup()
           busy = false

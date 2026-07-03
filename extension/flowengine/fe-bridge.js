@@ -4,7 +4,7 @@
  *
  * - chrome.runtime.onMessage(커맨드) → window.postMessage 로 MAIN 에 전달
  *   커맨드 타입(START_BATCH 등)인 경우 MAIN 의 RESPONSE 를 기다렸다가 sendResponse
- * - MAIN → window.postMessage(source:'flowbulk-page', type:'EVENT')
+ * - MAIN → window.postMessage(source:'flowbulk-page-tbm', type:'EVENT')
  *   chrome.runtime.sendMessage 로 서비스워커/사이드패널에 전달
  *   DOWNLOAD_IMAGE 는 응답까지 받아서 MAIN 쪽으로 _RESULT 이벤트 릴레이
  *
@@ -94,14 +94,14 @@
       return false;
     }
 
-    window.postMessage({ source: 'flowbulk-bridge', payload: msg }, '*');
+    window.postMessage({ source: 'flowbulk-bridge-tbm', payload: msg }, '*');
 
     if (COMMAND_TYPES.indexOf(msg.type) === -1) return false;
 
     var handler = function (evt) {
       if (evt.source !== window) return;
       var d = evt.data;
-      if (!d || d.source !== 'flowbulk-page' || d.type !== 'RESPONSE') return;
+      if (!d || d.source !== 'flowbulk-page-tbm' || d.type !== 'RESPONSE') return;
       window.removeEventListener('message', handler);
       sendResponse(d.payload);
     };
@@ -116,7 +116,7 @@
   // ── MAIN EVENT → chrome.runtime ───────────────
   function postDownloadResult(payload, ok, response, errorText) {
     window.postMessage({
-      source: 'flowbulk-bridge',
+      source: 'flowbulk-bridge-tbm',
       payload: {
         type: 'DOWNLOAD_IMAGE_RESULT',
         success: !!ok,
@@ -173,7 +173,7 @@
 
     if (evt.source !== window) return;
     var d = evt.data;
-    if (!d || d.source !== 'flowbulk-page' || d.type !== 'EVENT') return;
+    if (!d || d.source !== 'flowbulk-page-tbm' || d.type !== 'EVENT') return;
     var payload = d.payload;
     if (!payload) return;
 

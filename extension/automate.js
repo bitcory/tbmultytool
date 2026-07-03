@@ -62,19 +62,37 @@
     }
     return false
   }
+  // 열려있는 팝업 루트 — 구형 role=menu 와 신형(검색형 + 툴패널, Radix 팝오버) 모두 감지
+  function popupRoot() {
+    const m = qs('[role="menu"]')
+    if (m) return m
+    for (const w of qsa('[data-radix-popper-content-wrapper]')) {
+      const r = w.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) return w
+    }
+    return qsa('[role="listbox"], [role="dialog"]').find((e) => { const r = e.getBoundingClientRect(); return r.width > 100 && r.height > 100 }) || null
+  }
   async function openPlusMenu() {
+    if (popupRoot()) return true
     const btn = getPlusButton()
     if (!btn) return false
-    if (btn.getAttribute('aria-expanded') === 'true') return true
     await clickEl(btn)
-    for (let i = 0; i < 15; i++) { await sleep(100); if (qs('[role="menu"]')) return true }
-    return !!qs('[role="menu"]')
+    for (let i = 0; i < 15; i++) { await sleep(100); if (popupRoot()) return true }
+    return !!popupRoot()
   }
-  function closeAnyMenu() {
-    if (!qs('[role="menu"]')) return
-    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    const plus = getPlusButton()
-    if (plus && plus.getAttribute('aria-expanded') === 'true') document.body.click()
+  async function closeAnyMenu() {
+    for (let i = 0; i < 4 && popupRoot(); i++) {
+      const esc = { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true }
+      ;(document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', esc))
+      document.body.dispatchEvent(new KeyboardEvent('keydown', esc))
+      await sleep(250)
+      if (!popupRoot()) break
+      // Escape 가 안 먹으면 팝업 바깥 지점 pointerdown 으로 닫기 (Radix 는 outside press 에 닫힘)
+      const o = { bubbles: true, cancelable: true, clientX: 5, clientY: 5, pointerType: 'mouse', pointerId: 1, isPrimary: true, button: 0 }
+      document.body.dispatchEvent(new PointerEvent('pointerdown', o))
+      document.body.dispatchEvent(new PointerEvent('pointerup', o))
+      await sleep(250)
+    }
   }
   async function activateImageTool() {
     if (isImageModeActive()) return true
@@ -84,16 +102,22 @@
       for (let i = 0; i < 6; i++) { await sleep(250); if (isImageModeActive()) { log('이미지 모드 활성(빠른액션)'); return true } }
     }
     if (await openPlusMenu()) {
-      const item = qsa('[role="menuitemradio"], [role="menuitem"]').find((e) => { const t = (e.innerText || '').trim(); return PAT.imageTool.some((p) => t === p || t.startsWith(p)) })
+      // 신형 툴패널은 role=menuitem 이 아닐 수 있어 팝업 루트 안에서 넓게 찾는다.
+      const findItem = (pats) => {
+        const root = popupRoot() || document
+        return qsa('[role="menuitemradio"], [role="menuitem"], [role="option"], button, [role="button"], [tabindex]', root)
+          .find((e) => { const t = (e.innerText || '').trim(); return pats.some((p) => t === p || t.startsWith(p)) })
+      }
+      const item = findItem(PAT.imageTool)
       if (item) {
         await clickEl(item)
         for (let i = 0; i < 6; i++) { await sleep(250); if (isImageModeActive()) { log('이미지 모드 활성(+메뉴)'); return true } }
       }
-      const more = findByText('[role="menuitem"]', PAT.moreSubmenu)
+      const more = findItem(PAT.moreSubmenu)
       if (more) {
         await clickEl(more)
         await sleep(400)
-        const sub = qsa('[role="menuitemradio"], [role="menuitem"]').find((e) => { const t = (e.innerText || '').trim(); return PAT.imageTool.some((p) => t === p || t.startsWith(p)) })
+        const sub = findItem(PAT.imageTool)
         if (sub) {
           await clickEl(sub)
           for (let i = 0; i < 6; i++) { await sleep(250); if (isImageModeActive()) { log('이미지 모드 활성(더보기)'); return true } }
@@ -103,7 +127,7 @@
     // 활성화에 실패하면(또는 현재 UI에서 토글이 불필요하면) 열어둔 +메뉴를 반드시 닫는다.
     // 이걸 안 닫으면 메뉴가 입력창 위에 그대로 떠 전송/다음 클릭을 가로챈다.
     const ok = isImageModeActive()
-    if (!ok) closeAnyMenu()
+    if (!ok) await closeAnyMenu()
     return ok
   }
 
@@ -223,6 +247,7 @@
     if (!(await activateImageTool())) log('경고: 이미지 모드 활성 실패 — 일반 모드로 진행')
     await applyImageSize(ASPECT)
     if (REFS.length) { report('참조 이미지 업로드…'); await uploadImages(REFS); await sleep(1500) }
+    await closeAnyMenu() // 어떤 경로로든 열려 남은 +패널/메뉴는 입력·전송을 가리므로 반드시 정리
 
     report('프롬프트 입력 중…')
     if (!(await typePrompt(PROMPT, REFS.length > 0))) throw new Error('프롬프트 입력 실패(전송버튼 미활성 — 참조 업로드 지연일 수 있음)')

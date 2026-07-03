@@ -9,7 +9,9 @@ const KEY_FIELDS: { key: keyof ApiKeys; label: string; placeholder: string; help
   { key: 'gemini', label: 'Google Gemini', placeholder: 'AIza...', help: '대본 생성' },
   { key: 'elevenlabs', label: 'ElevenLabs', placeholder: '...', help: 'TTS 음성' },
   { key: 'fal', label: 'fal.ai', placeholder: 'fal-...', help: '이미지 생성 (FLUX)' },
-  { key: 'youtube', label: 'YouTube Data API', placeholder: 'AIza...', help: '유튜브 분석기' }
+  { key: 'youtube', label: 'YouTube Data API', placeholder: 'AIza...', help: '유튜브 분석기' },
+  { key: 'coupangAccess', label: '쿠팡파트너스 Access Key', placeholder: '...', help: '제휴링크 자동 발급 (파트너스 → 링크생성 → API 관리)' },
+  { key: 'coupangSecret', label: '쿠팡파트너스 Secret Key', placeholder: '...', help: '제휴링크 자동 발급' }
 ]
 
 const SOURCES: { id: ImageSource; label: string; url: string; Icon: LucideIcon }[] = [

@@ -14,6 +14,7 @@ const SOURCE_BADGE: Record<ImageSource, string> = {
   flowbatch: 'Flow',
   runway: 'Runway',
   xiaohongshu: '샤오홍슈',
+  inpock: '인포크',
   other: '기타'
 }
 const isVideoPath = (p: string) => /\.(mp4|webm|mov)$/i.test(p)

@@ -15,6 +15,23 @@ export interface ApiKeys {
   elevenlabs?: string
   fal?: string
   youtube?: string
+  coupangAccess?: string // 쿠팡파트너스 Open API Access Key
+  coupangSecret?: string // 쿠팡파트너스 Open API Secret Key
+}
+
+/** 쿠팡파트너스 딥링크 발급 결과 */
+export interface PartnersDeeplinkResult {
+  ok: boolean
+  shortenUrl?: string // https://link.coupang.com/a/… 단축 제휴링크
+  landingUrl?: string
+  message?: string
+}
+
+/** 인포크링크 링크블록 자동 게시 입력 (확장이 link.inpock.co.kr 관리자에서 등록) */
+export interface InpockPostPayload {
+  url: string // 연결할 주소 (쿠팡파트너스 제휴링크)
+  title: string // 링크블록 타이틀 (제품명)
+  imageDataUrl: string // 썸네일 이미지 (쿠팡 제품 썸네일 dataURL)
 }
 
 /** 유튜브 분석기 검색 옵션 */
@@ -126,7 +143,7 @@ export interface Project {
 }
 
 /** 확장으로부터 가져온 이미지/영상의 출처 ('scroll' = 앱 내부 스크롤영상 생성기, 'tistory' = 블로그 발행) */
-export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'tistory' | 'coupang' | 'flowbatch' | 'runway' | 'xiaohongshu' | 'other'
+export type ImageSource = 'chatgpt' | 'flow' | 'grok' | 'suno' | 'scroll' | 'tistory' | 'coupang' | 'flowbatch' | 'runway' | 'xiaohongshu' | 'inpock' | 'other'
 
 // ── 샤오홍슈 소스찾기 ──
 export interface XhsSearchOpts {
@@ -286,7 +303,7 @@ export interface VideoGenSettings {
 export interface BridgeJob {
   id: string
   source: ImageSource
-  kind?: 'image' | 'text' | 'blog' | 'search' // 기본 image. text=ChatGPT 텍스트 회수, blog=티스토리 발행, search=샤오홍슈 검색
+  kind?: 'image' | 'text' | 'blog' | 'search' | 'inpock' // 기본 image. text=ChatGPT 텍스트 회수, blog=티스토리 발행, search=샤오홍슈 검색, inpock=인포크링크 게시
   xhsSearch?: XhsSearchOpts // search 잡: 샤오홍슈 검색 조건
   prompt: string
   prompts?: string[] // flowbatch: 한 작업에 여러 프롬프트(배치) — Flow 엔진이 한 탭에서 파이프라인 생성
@@ -298,6 +315,7 @@ export interface BridgeJob {
   duration?: string // runway: 영상 길이(초)
   musicPayload?: MusicGenPayload // Suno: 음악 생성 입력
   blogPayload?: BlogPostPayload // blog 잡: 티스토리에 발행할 제목/본문/이미지/태그
+  inpockPayload?: InpockPostPayload // inpock 잡: 인포크링크 링크블록 등록 정보
 }
 
 /** 확장 작업 완료 결과 (job-status done 보고에 실려옴) */
@@ -332,6 +350,8 @@ export const IPC = {
   keysGet: 'keys:get',
   keysSet: 'keys:set',
   keysStatus: 'keys:status',
+  partnersDeeplink: 'partners:deeplink', // 쿠팡파트너스 제휴 단축링크 발급
+  inpockPost: 'inpock:post', // 인포크링크 링크블록 자동 게시(확장이 관리자에서 등록)
   genScript: 'gen:script',
   genImage: 'gen:image',
   genTts: 'gen:tts',
@@ -383,6 +403,12 @@ export interface ElectronAPI {
     getStatus: () => Promise<Record<keyof ApiKeys, boolean>>
     set: (keys: ApiKeys) => Promise<void>
     get: () => Promise<ApiKeys>
+  }
+  partners: {
+    /** 쿠팡 상품 URL → 파트너스 제휴 단축링크 발급 (Open API, 키 필요) */
+    deeplink: (productUrl: string) => Promise<PartnersDeeplinkResult>
+    /** 인포크링크 관리자에 링크블록 자동 등록 (크롬 확장 자동화, 인포크 로그인 필요) */
+    inpockPost: (payload: InpockPostPayload) => Promise<BridgeJobResult>
   }
   generate: {
     script: (opts: ProjectOptions) => Promise<Scene[]>

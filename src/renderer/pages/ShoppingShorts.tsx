@@ -529,6 +529,8 @@ export default function ShoppingShorts() {
   const [product, setProduct] = useState<CoupangProduct>(emptyProduct)
   const [features, setFeatures] = useState('') // 핵심 특징(대본 재료)
   const [partnersLink, setPartnersLink] = useState('') // 쿠팡파트너스 제휴링크
+  const [issuingLink, setIssuingLink] = useState(false) // 파트너스 링크 발급 중
+  const [postingInpock, setPostingInpock] = useState(false) // 인포크링크 게시 중
   const [inpockLink, setInpockLink] = useState('') // 인포크링크
   const [aspect, setAspect] = useState<AspectRatio>('9:16')
   const [duration, setDuration] = useState(30)
@@ -574,6 +576,7 @@ export default function ShoppingShorts() {
   const [vidDuration, setVidDuration] = useState('6')
   const [vidRes, setVidRes] = useState('720p')
   const [vidEngine, setVidEngine] = useState<'grok' | 'runway'>('grok') // 영상 생성 엔진
+  const [imgEngine, setImgEngine] = useState<'flow' | 'chatgpt'>('flow') // 이미지 생성 엔진
   // 참조 이미지 매칭: 모드(전체/1:1/선택) + 풀 선택(제품이미지 index) + 씬별 선택
   const [refMode, setRefMode] = useState<'all' | 'one' | 'pick'>('all')
   const [refSel, setRefSel] = useState<Set<number>>(new Set()) // 비어있으면 전체 사용
@@ -582,7 +585,7 @@ export default function ShoppingShorts() {
   // 입력 폼 영구 저장
   usePersistedForm(
     'shoppingshorts',
-    { url, product, features, partnersLink, inpockLink, aspect, duration, tone, tts, scriptSource, peopleMode },
+    { url, product, features, partnersLink, inpockLink, aspect, duration, tone, tts, scriptSource, peopleMode, imgEngine },
     (v) => {
       if (typeof v.url === 'string') setUrl(v.url)
       if (v.product && typeof v.product === 'object') setProduct(v.product as CoupangProduct)
@@ -595,6 +598,7 @@ export default function ShoppingShorts() {
       if (v.tts === 'openai' || v.tts === 'elevenlabs') setTts(v.tts)
       if (v.scriptSource === 'chatgpt' || v.scriptSource === 'api') setScriptSource(v.scriptSource)
       if (v.peopleMode === 'product' || v.peopleMode === 'hands' || v.peopleMode === 'free') setPeopleMode(v.peopleMode)
+      if (v.imgEngine === 'flow' || v.imgEngine === 'chatgpt') setImgEngine(v.imgEngine)
     }
   )
 
@@ -609,12 +613,64 @@ export default function ShoppingShorts() {
     return () => off()
   }, [])
 
+  // 쿠팡파트너스 Open API 로 현재 상품의 제휴 단축링크 발급 → 폼에 자동 입력.
+  // 설정에 등록한 본인 파트너스 키로 서명하므로 수익도 본인 계정으로 귀속된다.
+  const issuePartnersLink = async () => {
+    const target = (product.url || url).trim()
+    if (!target) {
+      setMsg('먼저 상품을 분석하거나 쿠팡 상품 URL 을 입력하세요')
+      return
+    }
+    setIssuingLink(true)
+    try {
+      const r = await window.electronAPI.partners.deeplink(target)
+      if (r.ok && r.shortenUrl) {
+        setPartnersLink(r.shortenUrl)
+        setMsg('파트너스 제휴링크 발급 완료')
+      } else {
+        setMsg(r.message || '제휴링크 발급 실패')
+      }
+    } finally {
+      setIssuingLink(false)
+    }
+  }
+
+  // 인포크링크 관리자에 링크블록 자동 등록 — 연결주소=파트너스 링크, 타이틀=제품명, 썸네일=제품 이미지.
+  // 확장(inpock.js)이 사용자 크롬(인포크 로그인 상태)에서 폼을 채우고 "추가 완료"까지 누른다.
+  const postToInpock = async () => {
+    const link = partnersLink.trim() || product.url || url.trim()
+    if (!link) {
+      setMsg('먼저 파트너스 링크를 발급하거나 상품 URL 을 입력하세요')
+      return
+    }
+    if (!product.name) {
+      setMsg('먼저 상품을 분석하세요 (타이틀에 제품명이 들어갑니다)')
+      return
+    }
+    if (!product.images.length) {
+      setMsg('상품 썸네일이 없습니다 — 먼저 상품을 분석하세요')
+      return
+    }
+    setPostingInpock(true)
+    setMsg('인포크링크 게시 중… (크롬 인포크 로그인 필요)')
+    try {
+      const imageDataUrl = await urlToDataUrl(product.images[0])
+      const r = await window.electronAPI.partners.inpockPost({ url: link, title: product.name, imageDataUrl })
+      setMsg(r.ok ? '인포크링크 등록 완료' : r.message || '인포크 등록 실패')
+      if (r.ok && !inpockLink) setInpockLink('https://link.inpock.co.kr') // 표시용 — 내 인포크 주소는 사용자가 채움
+    } catch (e) {
+      setMsg('인포크 게시 실패: ' + String(e instanceof Error ? e.message : e))
+    } finally {
+      setPostingInpock(false)
+    }
+  }
+
   // 로컬 미디어 서버 포트 + Flow 이미지 도착 수신
   useEffect(() => {
     window.electronAPI.bridge.getInfo().then((i) => setPort(i.port)).catch(() => {})
     const off = window.electronAPI.bridge.onImported((img) => {
-      // Flow 이미지 → 대기열의 다음 씬에 배정
-      if (img.source === 'flow' && isImagePath(img.path)) {
+      // Flow/ChatGPT 이미지 → 대기열의 다음 씬에 배정
+      if ((img.source === 'flow' || img.source === 'chatgpt') && isImagePath(img.path)) {
         const sid = imgQueue.current.shift()
         if (!sid) return
         setImgByScene((prev) => ({ ...prev, [sid]: img }))
@@ -879,7 +935,9 @@ export default function ShoppingShorts() {
       return n
     })
 
-  // 이미지: 대상 씬들을 Flow 한 배치로 생성. 씬별 참조 이미지를 @[pN] 토큰으로, 에셋과 함께 전달.
+  // 이미지: 대상 씬들을 배치 생성 (imgEngine 에 따라 Flow 또는 ChatGPT).
+  //   Flow    — 씬별 참조 이미지를 @[pN] 토큰으로, 에셋과 함께 한 배치로 전달.
+  //   ChatGPT — 씬별 개별 잡으로 큐잉, 참조 이미지는 각 잡의 referenceImages 로 첨부(i2i).
   const genImagesFor = async (targets: Scene[]) => {
     const list = targets.filter((s) => s.imagePrompt.trim())
     if (!list.length) {
@@ -888,24 +946,45 @@ export default function ShoppingShorts() {
     }
     markImg(list.map((s) => s.id), true)
     setMsg('제품 참조 이미지 준비 중…')
-    // 씬별 토큰 프롬프트 + 사용된 이미지 index 수집
+    // 사용된 참조 이미지 index → dataUrl 변환(엔진 공통)
     const usedIdx = new Set<number>()
-    const prompts = list.map((s) => {
+    const idxsByScene = list.map((s) => {
       const idxs = refIdxForScene(s)
       idxs.forEach((i) => usedIdx.add(i))
-      const tokens = idxs.map((i) => `@[p${i}]`).join(' ')
-      return tokens ? `${tokens} ${s.imagePrompt}` : s.imagePrompt
+      return idxs
     })
-    // 사용된 이미지를 에셋(name p{index})으로 변환
-    const assets: { name: string; dataUrl: string }[] = []
+    const dataUrlByIdx = new Map<number, string>()
     for (const i of [...usedIdx]) {
       try {
-        assets.push({ name: `p${i}`, dataUrl: await urlToDataUrl(product.images[i]) })
+        dataUrlByIdx.set(i, await urlToDataUrl(product.images[i]))
       } catch (e) {
         /* 변환 실패 무시 */
       }
     }
     imgQueue.current.push(...list.map((s) => s.id))
+
+    if (imgEngine === 'chatgpt') {
+      const items = list.map((s, li) => ({
+        prompt: s.imagePrompt,
+        images: idxsByScene[li].map((i) => dataUrlByIdx.get(i)).filter(Boolean) as string[]
+      }))
+      setMsg(`ChatGPT 이미지 ${list.length}장 생성 시작… · 크롬 ChatGPT 로그인 필요`)
+      const r = await window.electronAPI.bridge.generateBatch('chatgpt', items, aspect)
+      if (!r.ok) {
+        imgQueue.current = imgQueue.current.filter((id) => !list.some((s) => s.id === id))
+        markImg(list.map((s) => s.id), false)
+        setMsg(r.message || 'ChatGPT 배치 실패 — 크롬 ChatGPT 로그인/확장 확인')
+      }
+      return
+    }
+
+    // Flow: 씬별 토큰 프롬프트 + 에셋(name p{index})
+    const prompts = list.map((s, li) => {
+      const tokens = idxsByScene[li].map((i) => `@[p${i}]`).join(' ')
+      return tokens ? `${tokens} ${s.imagePrompt}` : s.imagePrompt
+    })
+    const assets: { name: string; dataUrl: string }[] = []
+    for (const [i, dataUrl] of dataUrlByIdx) assets.push({ name: `p${i}`, dataUrl })
     setMsg(`Flow 이미지 ${list.length}장 생성 시작… (참조 ${assets.length}개) · 크롬 Flow 로그인 필요`)
     const r = await window.electronAPI.bridge.generateFlowBatch(prompts, assets, aspect)
     if (!r.ok) {
@@ -1204,20 +1283,40 @@ export default function ShoppingShorts() {
                 <StepHead n={3} done={!!(partnersLink || inpockLink)}>
                   제휴 링크 <Link2 size={12} style={{ verticalAlign: 'middle', opacity: 0.6 }} />
                 </StepHead>
-                <input
-                  className="igen-textarea"
-                  style={{ height: 40, resize: 'none' }}
-                  placeholder="쿠팡파트너스 제휴링크 (https://link.coupang.com/…)"
-                  value={partnersLink}
-                  onChange={(e) => setPartnersLink(e.target.value)}
-                />
-                <input
-                  className="igen-textarea"
-                  style={{ height: 40, resize: 'none', marginTop: 8 }}
-                  placeholder="인포크링크 (선택)"
-                  value={inpockLink}
-                  onChange={(e) => setInpockLink(e.target.value)}
-                />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="igen-textarea"
+                    style={{ height: 40, resize: 'none', flex: 1 }}
+                    placeholder="쿠팡파트너스 제휴링크 (https://link.coupang.com/…)"
+                    value={partnersLink}
+                    onChange={(e) => setPartnersLink(e.target.value)}
+                  />
+                  <button
+                    style={smallCta(issuingLink)}
+                    disabled={issuingLink}
+                    title="설정에 등록한 내 파트너스 API 키로 이 상품의 제휴 단축링크를 발급합니다"
+                    onClick={issuePartnersLink}
+                  >
+                    <Link2 size={14} /> {issuingLink ? '발급 중…' : '링크 발급'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <input
+                    className="igen-textarea"
+                    style={{ height: 40, resize: 'none', flex: 1 }}
+                    placeholder="인포크링크 (선택)"
+                    value={inpockLink}
+                    onChange={(e) => setInpockLink(e.target.value)}
+                  />
+                  <button
+                    style={smallCta(postingInpock)}
+                    disabled={postingInpock}
+                    title="인포크링크 관리자에 이 상품의 링크블록(썸네일 스타일)을 자동 등록합니다 — 연결주소=파트너스 링크, 타이틀=제품명, 이미지=제품 썸네일. 크롬에 인포크 로그인 필요"
+                    onClick={postToInpock}
+                  >
+                    <Link2 size={14} /> {postingInpock ? '게시 중…' : '인포크 게시'}
+                  </button>
+                </div>
               </div>
 
               <p className="igen-note" style={{ marginTop: 0 }}>
@@ -1374,6 +1473,8 @@ export default function ShoppingShorts() {
               <div style={TOOLBAR}>
                 <span style={TB_LABEL}>화면 비율</span>
                 <SegInline value={aspect} onChange={(v) => setAspect(v as AspectRatio)} options={[{ v: '9:16', label: '9:16' }, { v: '1:1', label: '1:1' }, { v: '16:9', label: '16:9' }]} />
+                <span style={TB_LABEL}>생성 엔진</span>
+                <SegInline value={imgEngine} onChange={(v) => setImgEngine(v as 'flow' | 'chatgpt')} options={[{ v: 'flow', label: 'Flow' }, { v: 'chatgpt', label: 'ChatGPT' }]} />
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                   <button style={smallCta(busyImg.size > 0)} onClick={genAllImages} disabled={busyImg.size > 0}>
                     <Film size={14} /> 전체 이미지 생성
