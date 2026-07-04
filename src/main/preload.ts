@@ -19,6 +19,11 @@ const api: ElectronAPI = {
     set: (keys: ApiKeys) => ipcRenderer.invoke(IPC.keysSet, keys),
     get: () => ipcRenderer.invoke(IPC.keysGet)
   },
+  typecast: {
+    voices: () => ipcRenderer.invoke(IPC.typecastVoices),
+    preview: (voiceId: string, model: string, language: string) =>
+      ipcRenderer.invoke(IPC.typecastPreview, voiceId, model, language)
+  },
   partners: {
     deeplink: (productUrl: string) => ipcRenderer.invoke(IPC.partnersDeeplink, productUrl),
     inpockPost: (payload) => ipcRenderer.invoke(IPC.inpockPost, payload)
@@ -29,6 +34,8 @@ const api: ElectronAPI = {
       ipcRenderer.invoke(IPC.genImage, scene, opts, outDir),
     tts: (scene: Scene, opts: ProjectOptions, outDir: string) =>
       ipcRenderer.invoke(IPC.genTts, scene, opts, outDir),
+    narration: (text, provider, voice, typecastOpts) =>
+      ipcRenderer.invoke(IPC.genNarration, text, provider, voice, typecastOpts),
     render: (project: Project, outDir: string) => ipcRenderer.invoke(IPC.render, project, outDir)
   },
   fs: {

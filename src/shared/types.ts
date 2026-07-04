@@ -3,7 +3,7 @@
 /** 대본 생성에 쓰는 LLM 공급자 */
 export type ScriptProvider = 'anthropic' | 'openai' | 'gemini'
 /** 음성(TTS) 공급자 */
-export type TtsProvider = 'openai' | 'elevenlabs'
+export type TtsProvider = 'openai' | 'elevenlabs' | 'typecast'
 /** 이미지 생성 공급자 */
 export type ImageProvider = 'fal' | 'openai'
 
@@ -17,6 +17,7 @@ export interface ApiKeys {
   youtube?: string
   coupangAccess?: string // 쿠팡파트너스 Open API Access Key
   coupangSecret?: string // 쿠팡파트너스 Open API Secret Key
+  typecast?: string // Typecast API Key (TTS)
 }
 
 /** 쿠팡파트너스 딥링크 발급 결과 */
@@ -32,6 +33,31 @@ export interface InpockPostPayload {
   url: string // 연결할 주소 (쿠팡파트너스 제휴링크)
   title: string // 링크블록 타이틀 (제품명)
   imageDataUrl: string // 썸네일 이미지 (쿠팡 제품 썸네일 dataURL)
+}
+
+/** Typecast 보이스 (정규화된 형태 — /v2/voices 응답에서 추출) */
+export interface TypecastVoice {
+  voiceId: string
+  name: string
+  gender?: string
+  age?: string
+  useCases?: string[] // 용도 태그 (Audiobook, Ads, Game 등)
+  voiceType?: string // original | custom
+  /** 모델별 지원 감정 프리셋 (예: { 'ssfm-v30': ['normal','happy',...] }) */
+  emotions?: Record<string, string[]>
+}
+
+/** Typecast TTS 상세 옵션 (모델/감정/출력) */
+export interface TypecastTtsOptions {
+  voiceId?: string // tc_/uc_ 보이스 ID (없으면 자동 선택)
+  model?: 'ssfm-v30' | 'ssfm-v21'
+  language?: string // ISO 639-3 (kor/eng/cmn/jpn 등, '' = 자동 감지)
+  emotionPreset?: string // normal|happy|sad|angry|whisper|toneup|tonedown ('' = 스마트 자동)
+  emotionIntensity?: number // 0.0~2.0 (기본 1.0)
+  volume?: number // 0~200 (기본 100)
+  pitch?: number // -12~+12 반음 (기본 0)
+  tempo?: number // 0.5~2.0 배속 (기본 1.0)
+  seed?: number // 재현용 (선택)
 }
 
 /** 유튜브 분석기 검색 옵션 */
@@ -355,6 +381,9 @@ export const IPC = {
   genScript: 'gen:script',
   genImage: 'gen:image',
   genTts: 'gen:tts',
+  genNarration: 'gen:narration', // 통합 나레이션 텍스트 → 음성(mp3) 생성 + 갤러리 등록
+  typecastVoices: 'typecast:voices', // Typecast 보이스 목록 조회(키 필요, 캐시)
+  typecastPreview: 'typecast:preview', // 보이스 미리듣기 샘플 생성(캐시) → /media/ 파일명 반환
   render: 'gen:render',
   selectOutputDir: 'fs:selectOutputDir',
   openPath: 'fs:openPath',
@@ -404,6 +433,12 @@ export interface ElectronAPI {
     set: (keys: ApiKeys) => Promise<void>
     get: () => Promise<ApiKeys>
   }
+  typecast: {
+    /** 계정에서 사용 가능한 보이스 목록 (설정의 Typecast 키 필요) */
+    voices: () => Promise<TypecastVoice[]>
+    /** 보이스 미리듣기 — 짧은 예시문장을 합성해 /media/<file> 로 재생 가능한 파일명 반환 (보이스별 캐시) */
+    preview: (voiceId: string, model: string, language: string) => Promise<{ file: string }>
+  }
   partners: {
     /** 쿠팡 상품 URL → 파트너스 제휴 단축링크 발급 (Open API, 키 필요) */
     deeplink: (productUrl: string) => Promise<PartnersDeeplinkResult>
@@ -414,6 +449,13 @@ export interface ElectronAPI {
     script: (opts: ProjectOptions) => Promise<Scene[]>
     image: (scene: Scene, opts: ProjectOptions, outDir: string) => Promise<string>
     tts: (scene: Scene, opts: ProjectOptions, outDir: string) => Promise<{ path: string; durationSec: number }>
+    /** 통합 나레이션 텍스트를 음성으로 생성해 갤러리에 등록 — 재생은 /media/<파일명> */
+    narration: (
+      text: string,
+      provider: TtsProvider,
+      voice: string,
+      typecastOpts?: TypecastTtsOptions
+    ) => Promise<{ path: string; durationSec: number; filename: string }>
     render: (project: Project, outDir: string) => Promise<string>
   }
   fs: {

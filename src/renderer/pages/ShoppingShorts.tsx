@@ -19,7 +19,7 @@ import {
   Copy,
   Check
 } from 'lucide-react'
-import type { Scene, ProjectOptions, AspectRatio, TtsProvider, ScriptProvider, CoupangProduct, ImportedImage } from '@shared/types'
+import type { Scene, ProjectOptions, AspectRatio, TtsProvider, ScriptProvider, CoupangProduct, ImportedImage, TypecastVoice } from '@shared/types'
 import { usePersistedForm } from '../persist'
 
 // 쇼핑쇼츠 파이프라인 — 쿠팡 상품 → 분석 → 대본 → 이미지 → 영상 → 오디오 → 편집 → 업로드 (단계 탭).
@@ -196,7 +196,15 @@ function extractScenesJson(text: string): { title?: string; scenes: Record<strin
   return j && Array.isArray(j.scenes) && j.scenes.length ? j : null
 }
 
-type ParsedScene = { narration: string; imagePrompt: string }
+type ParsedScene = {
+  narration: string
+  imagePrompt: string
+  seedancePrompt?: string // 영상(멀티컷) 프롬프트 — 줄바꿈 보존
+  motionPrompt?: string
+  role?: string
+  sellingPoints?: string[]
+  captions?: { at: string; hook: string; detail?: string }[]
+}
 const collapse = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean).join(' ').trim()
 
 // 붙여넣은 대본을 씬 배열로 파싱. ① JSON(코드블록/객체/배열) 우선 → ② 텍스트(씬 헤더·라벨·문단) 폴백.
@@ -210,10 +218,24 @@ function parseScriptText(text: string): ParsedScene[] | null {
         const arr: any[] | null = Array.isArray(j) ? j : Array.isArray(j?.scenes) ? j.scenes : null
         if (!arr || !arr.length) continue
         const out = arr
-          .map((s) => ({
-            narration: collapse(String(s?.narration ?? s?.script ?? s?.text ?? s?.subtitle ?? s?.나레이션 ?? s?.자막 ?? '')),
-            imagePrompt: collapse(String(s?.imagePrompt ?? s?.image_prompt ?? s?.prompt ?? s?.image ?? s?.visual ?? s?.이미지 ?? ''))
-          }))
+          .map((s) => {
+            const seedance = String(s?.seedancePrompt ?? s?.seedance_prompt ?? s?.videoPrompt ?? s?.video_prompt ?? '').trim()
+            const motion = String(s?.motionPrompt ?? s?.motion_prompt ?? '').trim()
+            const captions = Array.isArray(s?.captions)
+              ? (s.captions as any[])
+                  .map((c) => ({ at: String(c?.at ?? ''), hook: String(c?.hook ?? c?.text ?? ''), detail: c?.detail != null ? String(c.detail) : undefined }))
+                  .filter((c) => c.hook)
+              : undefined
+            return {
+              narration: collapse(String(s?.narration ?? s?.script ?? s?.text ?? s?.subtitle ?? s?.나레이션 ?? s?.자막 ?? '')),
+              imagePrompt: collapse(String(s?.imagePrompt ?? s?.image_prompt ?? s?.prompt ?? s?.image ?? s?.visual ?? s?.이미지 ?? '')),
+              seedancePrompt: seedance || undefined,
+              motionPrompt: motion || undefined,
+              role: s?.role != null ? String(s.role) : undefined,
+              sellingPoints: Array.isArray(s?.sellingPoints) ? (s.sellingPoints as any[]).map(String) : undefined,
+              captions
+            }
+          })
           .filter((s) => s.narration || s.imagePrompt)
         if (out.length) return out
       } catch {
@@ -531,11 +553,70 @@ export default function ShoppingShorts() {
   const [partnersLink, setPartnersLink] = useState('') // 쿠팡파트너스 제휴링크
   const [issuingLink, setIssuingLink] = useState(false) // 파트너스 링크 발급 중
   const [postingInpock, setPostingInpock] = useState(false) // 인포크링크 게시 중
+  const [narrBusy, setNarrBusy] = useState(false) // 나레이션 음성 생성 중
+  const [narrAudio, setNarrAudio] = useState<{ path: string; durationSec: number; filename: string } | null>(null)
+  // Typecast 상세 옵션 (보이스/모델/감정/출력)
+  const [tcVoices, setTcVoices] = useState<TypecastVoice[]>([])
+  const [tcVoicesErr, setTcVoicesErr] = useState('')
+  const [tcVoice, setTcVoice] = useState('') // voice_id ('' = 자동)
+  const [tcModel, setTcModel] = useState<'ssfm-v30' | 'ssfm-v21'>('ssfm-v30')
+  const [tcLang, setTcLang] = useState('kor') // 발화 언어 ('' = 자동 감지)
+  const [tcEmotion, setTcEmotion] = useState('') // '' = 스마트(자동)
+  const [tcIntensity, setTcIntensity] = useState(1) // 0~2
+  const [tcTempo, setTcTempo] = useState(1) // 0.5~2
+  const [tcPitch, setTcPitch] = useState(0) // -12~12
+  const [tcVolume, setTcVolume] = useState(100) // 0~200
+  const [tcPreviewBusy, setTcPreviewBusy] = useState('') // 미리듣기 생성 중인 보이스ID ('' = 없음)
+  const [tcFGender, setTcFGender] = useState('') // 보이스 필터: 성별 ('' = 전체)
+  const [tcFAge, setTcFAge] = useState('') // 보이스 필터: 연령
+  const [tcFUse, setTcFUse] = useState('') // 보이스 필터: 용도 태그
+  const [tcFName, setTcFName] = useState('') // 보이스 필터: 이름 언어 ('' | 'ko' | 'en')
+
   const [inpockLink, setInpockLink] = useState('') // 인포크링크
   const [aspect, setAspect] = useState<AspectRatio>('9:16')
   const [duration, setDuration] = useState(30)
   const [tone, setTone] = useState(TONES[0].v)
   const [tts, setTts] = useState<TtsProvider>('openai')
+  // Typecast 선택 시 보이스 목록 로드 (1회)
+  useEffect(() => {
+    if (tts !== 'typecast' || tcVoices.length) return
+    window.electronAPI.typecast
+      .voices()
+      .then((v) => {
+        setTcVoices(v)
+        setTcVoicesErr('')
+      })
+      .catch((e) => setTcVoicesErr(String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tts])
+
+  // 선택된 보이스가 현재 모델에서 지원하는 감정 목록 (모델 기본값 폴백)
+  const tcEmotionChoices = (() => {
+    const fallback = tcModel === 'ssfm-v30' ? ['normal', 'happy', 'sad', 'angry', 'whisper', 'toneup', 'tonedown'] : ['normal', 'happy', 'sad', 'angry']
+    const v = tcVoices.find((x) => x.voiceId === tcVoice)
+    const fromVoice = v?.emotions?.[tcModel]
+    return fromVoice && fromVoice.length ? fromVoice : fallback
+  })()
+
+  // 보이스 필터 적용 목록 + 목록에 실제 존재하는 용도 태그
+  const tcUseTags = [...new Set(tcVoices.flatMap((v) => v.useCases || []))].sort()
+  const tcFiltered = tcVoices.filter(
+    (v) =>
+      (!tcFGender || v.gender === tcFGender) &&
+      (!tcFAge || v.age === tcFAge) &&
+      (!tcFUse || (v.useCases || []).includes(tcFUse)) &&
+      (!tcFName || (tcFName === 'ko' ? /[가-힣]/.test(v.name) : !/[가-힣]/.test(v.name)))
+  )
+  const USE_KO: Record<string, string> = {
+    Announcer: '아나운서', Anime: '애니메이션', Animation: '애니메이션', Audiobook: '오디오북', Game: '게임',
+    Ads: '광고', News: '뉴스', 'E-learning': '교육', Documentary: '다큐', Marketing: '마케팅',
+    Conversation: '대화', Conversational: '대화체', Narration: '나레이션', Movie: '영화', Kids: '아동',
+    Senior: '장년', Podcast: '팟캐스트', ASMR: 'ASMR',
+    'Ads/Promotion': '광고/프로모션', 'Audiobook/Storytelling': '오디오북/스토리텔링',
+    'E-learning/Explainer': '교육/설명', 'News Reporter': '뉴스 리포터', 'Radio/Podcast': '라디오/팟캐스트',
+    Rapper: '래퍼', 'TikTok/Reels/Shorts': '틱톡/릴스/쇼츠', 'Voicemail/Voice Assistant': '음성안내/어시스턴트'
+  }
+
   const [narrationText, setNarrationText] = useState('') // 오디오 탭: 통합 나레이션(편집 가능)
   const [scriptSource, setScriptSource] = useState<'chatgpt' | 'api'>('chatgpt') // 대본 생성 방식
   const [peopleMode, setPeopleMode] = useState<'product' | 'hands' | 'free'>('hands') // 인물 표현 수준
@@ -585,7 +666,13 @@ export default function ShoppingShorts() {
   // 입력 폼 영구 저장
   usePersistedForm(
     'shoppingshorts',
-    { url, product, features, partnersLink, inpockLink, aspect, duration, tone, tts, scriptSource, peopleMode, imgEngine },
+    {
+      url, product, features, partnersLink, inpockLink, aspect, duration, tone, tts, scriptSource, peopleMode, imgEngine,
+      tcVoice, tcModel, tcLang, tcEmotion, tcIntensity, tcTempo, tcPitch, tcVolume,
+      // 생성 콘텐츠 — 페이지를 나갔다 와도 대본/나레이션/씬 슬롯 유지
+      scenes, narrationText, imgByScene, vidByScene, narrAudio,
+      refMode, refPick, refSelArr: [...refSel]
+    },
     (v) => {
       if (typeof v.url === 'string') setUrl(v.url)
       if (v.product && typeof v.product === 'object') setProduct(v.product as CoupangProduct)
@@ -595,10 +682,28 @@ export default function ShoppingShorts() {
       if (v.aspect === '9:16' || v.aspect === '16:9' || v.aspect === '1:1') setAspect(v.aspect)
       if (typeof v.duration === 'number') setDuration(v.duration)
       if (typeof v.tone === 'string') setTone(v.tone)
-      if (v.tts === 'openai' || v.tts === 'elevenlabs') setTts(v.tts)
+      if (v.tts === 'openai' || v.tts === 'elevenlabs' || v.tts === 'typecast') setTts(v.tts)
       if (v.scriptSource === 'chatgpt' || v.scriptSource === 'api') setScriptSource(v.scriptSource)
       if (v.peopleMode === 'product' || v.peopleMode === 'hands' || v.peopleMode === 'free') setPeopleMode(v.peopleMode)
       if (v.imgEngine === 'flow' || v.imgEngine === 'chatgpt') setImgEngine(v.imgEngine)
+      if (typeof v.tcVoice === 'string') setTcVoice(v.tcVoice)
+      if (typeof v.tcLang === 'string') setTcLang(v.tcLang)
+      if (v.tcModel === 'ssfm-v30' || v.tcModel === 'ssfm-v21') setTcModel(v.tcModel)
+      if (typeof v.tcEmotion === 'string') setTcEmotion(v.tcEmotion)
+      if (typeof v.tcIntensity === 'number') setTcIntensity(v.tcIntensity)
+      if (typeof v.tcTempo === 'number') setTcTempo(v.tcTempo)
+      if (typeof v.tcPitch === 'number') setTcPitch(v.tcPitch)
+      if (typeof v.tcVolume === 'number') setTcVolume(v.tcVolume)
+      if (Array.isArray(v.scenes)) setScenes(v.scenes as Scene[])
+      if (typeof v.narrationText === 'string') setNarrationText(v.narrationText)
+      if (v.imgByScene && typeof v.imgByScene === 'object') setImgByScene(v.imgByScene as Record<string, ImportedImage>)
+      if (v.vidByScene && typeof v.vidByScene === 'object') setVidByScene(v.vidByScene as Record<string, ImportedImage>)
+      if (v.narrAudio && typeof v.narrAudio === 'object' && (v.narrAudio as { path?: string }).path) {
+        setNarrAudio(v.narrAudio as { path: string; durationSec: number; filename: string })
+      }
+      if (v.refMode === 'all' || v.refMode === 'one' || v.refMode === 'pick') setRefMode(v.refMode)
+      if (v.refPick && typeof v.refPick === 'object') setRefPick(v.refPick as Record<string, number[]>)
+      if (Array.isArray(v.refSelArr)) setRefSel(new Set((v.refSelArr as number[]).filter((n) => typeof n === 'number')))
     }
   )
 
@@ -632,6 +737,44 @@ export default function ShoppingShorts() {
       }
     } finally {
       setIssuingLink(false)
+    }
+  }
+
+  // Typecast 보이스 미리듣기 — 짧은 샘플을 합성해 즉시 재생 (보이스·언어별 영구 캐시)
+  const previewTcVoice = async (voiceId: string) => {
+    setTcPreviewBusy(voiceId || 'auto')
+    try {
+      const r = await window.electronAPI.typecast.preview(voiceId, tcModel, tcLang || 'kor')
+      const audio = new Audio(`http://127.0.0.1:${port}/media/${r.file}?t=${Date.now()}`)
+      await audio.play()
+    } catch (e) {
+      setMsg('미리듣기 실패: ' + String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    } finally {
+      setTcPreviewBusy('')
+    }
+  }
+
+  // 통합 나레이션 텍스트를 선택한 TTS 엔진으로 음성 생성 → 플레이어 표시 + 갤러리 저장
+  const genNarration = async () => {
+    const text = narrationText.trim()
+    if (!text) {
+      setMsg('나레이션 텍스트가 없습니다 — 먼저 대본을 만드세요')
+      return
+    }
+    setNarrBusy(true)
+    setMsg(`나레이션 음성 생성 중… (${tts})`)
+    try {
+      const voice = tts === 'elevenlabs' ? 'Rachel' : tts === 'typecast' ? tcVoice : 'alloy'
+      const tcOpts = tts === 'typecast'
+        ? { voiceId: tcVoice, model: tcModel, language: tcLang || undefined, emotionPreset: tcEmotion || undefined, emotionIntensity: tcIntensity, tempo: tcTempo, pitch: tcPitch, volume: tcVolume }
+        : undefined
+      const r = await window.electronAPI.generate.narration(text, tts, voice, tcOpts)
+      setNarrAudio(r)
+      setMsg(`나레이션 생성 완료 (${Math.round(r.durationSec)}초)`)
+    } catch (e) {
+      setMsg('나레이션 생성 실패: ' + String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    } finally {
+      setNarrBusy(false)
     }
   }
 
@@ -846,7 +989,7 @@ export default function ShoppingShorts() {
           sceneCount,
           scriptProvider: provider,
           ttsProvider: tts,
-          ttsVoice: tts === 'elevenlabs' ? 'Rachel' : 'alloy',
+          ttsVoice: tts === 'elevenlabs' ? 'Rachel' : tts === 'typecast' ? '' : 'alloy',
           imageProvider: 'fal',
           imageStyle: 'product hero shot, clean studio lighting, e-commerce, high detail'
         }
@@ -868,7 +1011,19 @@ export default function ShoppingShorts() {
       setUploadErr('대본을 인식하지 못했어요. JSON({"scenes":[…]}) 또는 “씬 1 / 나레이션: / 이미지:” 형식으로 붙여넣어 주세요.')
       return
     }
-    setScenes(parsed.map((s, i) => ({ id: crypto.randomUUID(), index: i, narration: s.narration, imagePrompt: s.imagePrompt })))
+    setScenes(
+      parsed.map((s, i) => ({
+        id: crypto.randomUUID(),
+        index: i,
+        narration: s.narration,
+        imagePrompt: s.imagePrompt,
+        seedancePrompt: s.seedancePrompt,
+        motionPrompt: s.seedancePrompt || s.motionPrompt,
+        role: s.role,
+        sellingPoints: s.sellingPoints,
+        captions: s.captions
+      }))
+    )
     setSceneIdx(0)
     setUploadOpen(false)
     setMsg(`대본 ${parsed.length}개 씬 불러옴 (업로드)`)
@@ -880,6 +1035,15 @@ export default function ShoppingShorts() {
     setFeatures('')
     setImgByScene({})
     setVidByScene({})
+    setNarrationText('')
+    setNarrAudio(null)
+    setPartnersLink('') // 이전 상품의 제휴링크가 새 상품에 섞이지 않게
+    setRefSel(new Set())
+    setRefPick({})
+    imgQueue.current = []
+    vidQueue.current = []
+    setBusyImg(new Set())
+    setBusyVid(new Set())
     setAnalyzing(false)
     setMsg('')
   }
@@ -1683,9 +1847,225 @@ export default function ShoppingShorts() {
               <div className="igen-ratios">
                 <button className={`igen-ratio ${tts === 'openai' ? 'active' : ''}`} onClick={() => setTts('openai')}>OpenAI TTS</button>
                 <button className={`igen-ratio ${tts === 'elevenlabs' ? 'active' : ''}`} onClick={() => setTts('elevenlabs')}>ElevenLabs</button>
+                <button className={`igen-ratio ${tts === 'typecast' ? 'active' : ''}`} onClick={() => setTts('typecast')}>Typecast</button>
                 <button className="igen-ratio" disabled title="브라우저 무료 TTS — 추가 예정" style={{ opacity: 0.45 }}>무료 (예정)</button>
               </div>
-              <Soon icon={<Music size={30} />} title="오디오(나레이션) 생성" desc="왼쪽 통합 대본을 위 엔진으로 음성 생성합니다." />
+              {tts === 'typecast' && (
+                <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div>
+                    <div className="igen-label">
+                      보이스 {tcVoices.length > 0 && <span style={{ opacity: 0.5 }}>({tcFiltered.length}/{tcVoices.length}개)</span>}
+                    </div>
+                    {tcVoices.length > 0 && (() => {
+                      const sel: React.CSSProperties = {
+                        flex: 1, minWidth: 0, background: '#15171f', border: '1px solid #2a2e3a',
+                        borderRadius: 8, color: '#e8eaf0', fontSize: 12, padding: '7px 8px'
+                      }
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select style={sel} value={tcFGender} onChange={(e) => setTcFGender(e.target.value)}>
+                              <option value="">성별 전체</option>
+                              <option value="male">남성</option>
+                              <option value="female">여성</option>
+                            </select>
+                            <select style={sel} value={tcFAge} onChange={(e) => setTcFAge(e.target.value)}>
+                              <option value="">연령 전체</option>
+                              <option value="child">아동</option>
+                              <option value="teenager">청소년</option>
+                              <option value="young_adult">청년</option>
+                              <option value="middle_age">중년</option>
+                              <option value="elder">장년</option>
+                            </select>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select style={sel} value={tcFUse} onChange={(e) => setTcFUse(e.target.value)}>
+                              <option value="">용도 전체</option>
+                              {tcUseTags.map((u) => (
+                                <option key={u} value={u}>{USE_KO[u] || u}</option>
+                              ))}
+                            </select>
+                            <select style={sel} value={tcFName} onChange={(e) => setTcFName(e.target.value)}>
+                              <option value="">이름 전체</option>
+                              <option value="ko">한국 이름</option>
+                              <option value="en">영문 이름</option>
+                            </select>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    {tcVoicesErr ? (
+                      <p className="igen-note" style={{ color: '#e8746e' }}>{tcVoicesErr}</p>
+                    ) : (
+                      <div style={{ border: '1px solid #2a2e3a', borderRadius: 8, maxHeight: 250, overflowY: 'auto', background: '#15171f' }}>
+                        {(() => {
+                          const genderKo: Record<string, string> = { male: '남성', female: '여성' }
+                          const ageKo: Record<string, string> = { child: '아동', teenager: '청소년', young_adult: '청년', middle_age: '중년', elder: '장년', adult: '성인' }
+                          const row = (on: boolean): React.CSSProperties => ({
+                            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', cursor: 'pointer',
+                            background: on ? '#243252' : 'transparent', borderBottom: '1px solid #1d2029'
+                          })
+                          const playBtn = (busy: boolean): React.CSSProperties => ({
+                            flex: '0 0 auto', width: 26, height: 26, borderRadius: '50%', border: '1px solid #3a4460',
+                            background: '#1d2029', color: busy ? '#7a86a3' : '#9db4e8', cursor: busy ? 'wait' : 'pointer',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, padding: 0
+                          })
+                          const list = [
+                            ...(tcVoice && !tcFiltered.some((v) => v.voiceId === tcVoice)
+                              ? tcVoices.filter((v) => v.voiceId === tcVoice)
+                              : []),
+                            ...tcFiltered
+                          ]
+                          return (
+                            <>
+                              <div style={row(tcVoice === '')} onClick={() => setTcVoice('')}>
+                                <span style={{ flex: 1, fontSize: 12.5, color: '#cfd3dd' }}>자동 (첫 번째 보이스)</span>
+                                {tcVoice === '' && <span style={{ color: '#5b93ff', fontSize: 12 }}>✓</span>}
+                              </div>
+                              {list.map((v) => {
+                                const on = tcVoice === v.voiceId
+                                const busy = tcPreviewBusy === v.voiceId
+                                const tags = [genderKo[v.gender || ''] || v.gender, ageKo[v.age || ''] || v.age, ...(v.useCases || []).slice(0, 2).map((u) => USE_KO[u] || u)]
+                                  .filter(Boolean)
+                                  .join(' · ')
+                                return (
+                                  <div key={v.voiceId} style={row(on)} onClick={() => setTcVoice(v.voiceId)}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: on ? '#fff' : '#e0e3ec', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {v.name} {on && <span style={{ color: '#5b93ff' }}>✓</span>}
+                                      </div>
+                                      <div style={{ fontSize: 11, opacity: 0.55, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tags}</div>
+                                    </div>
+                                    <button
+                                      style={playBtn(busy)}
+                                      disabled={!!tcPreviewBusy}
+                                      title="이 보이스 미리듣기 (첫 1회만 크레딧, 이후 캐시)"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        previewTcVoice(v.voiceId)
+                                      }}
+                                    >
+                                      {busy ? '…' : '▶'}
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                              {list.length === 0 && <div style={{ padding: 12, fontSize: 12, opacity: 0.5 }}>필터에 맞는 보이스가 없습니다</div>}
+                            </>
+                          )
+                        })()}
+                      </div>
+                    )}
+                    <p className="igen-note" style={{ marginTop: 6 }}>다국어 보이스 — 아래에서 고른 언어로 발음합니다. ▶ 미리듣기는 보이스별 첫 1회만 크레딧 소모(영구 캐시).</p>
+                  </div>
+                  <div>
+                    <div className="igen-label">언어</div>
+                    <SegInline
+                      value={tcLang}
+                      onChange={setTcLang}
+                      options={[
+                        { v: 'kor', label: '한국어' },
+                        { v: 'eng', label: '영어' },
+                        { v: 'cmn', label: '중국어' },
+                        { v: 'jpn', label: '일본어' },
+                        { v: '', label: '자동' }
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <div className="igen-label">모델</div>
+                    <SegInline
+                      value={tcModel}
+                      onChange={(v) => {
+                        setTcModel(v as 'ssfm-v30' | 'ssfm-v21')
+                        setTcEmotion('') // 모델별 지원 감정이 달라 초기화
+                      }}
+                      options={[{ v: 'ssfm-v30', label: 'v3.0 (최신)' }, { v: 'ssfm-v21', label: 'v2.1' }]}
+                    />
+                  </div>
+                  <div>
+                    <div className="igen-label">감정</div>
+                    <select
+                      value={tcEmotion}
+                      onChange={(e) => setTcEmotion(e.target.value)}
+                      style={{ width: '100%', background: '#15171f', border: '1px solid #2a2e3a', borderRadius: 8, color: '#e8eaf0', fontSize: 13, padding: '9px 10px' }}
+                    >
+                      <option value="">{tcModel === 'ssfm-v30' ? '스마트 (문맥 자동 감정)' : '기본'}</option>
+                      {tcEmotionChoices.map((em) => (
+                        <option key={em} value={em}>
+                          {{ normal: '보통', happy: '기쁨', sad: '슬픔', angry: '화남', whisper: '속삭임', toneup: '톤 업', tonedown: '톤 다운' }[em] || em}
+                        </option>
+                      ))}
+                    </select>
+                    {tcEmotion && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                        <span style={{ fontSize: 12, opacity: 0.6, flex: '0 0 56px' }}>강도 {tcIntensity.toFixed(1)}</span>
+                        <input type="range" min={0} max={2} step={0.1} value={tcIntensity} onChange={(e) => setTcIntensity(Number(e.target.value))} style={{ flex: 1 }} />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="igen-label">출력</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, opacity: 0.6, flex: '0 0 62px' }}>속도 {tcTempo.toFixed(2)}x</span>
+                      <input type="range" min={0.5} max={2} step={0.05} value={tcTempo} onChange={(e) => setTcTempo(Number(e.target.value))} style={{ flex: 1 }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                      <span style={{ fontSize: 12, opacity: 0.6, flex: '0 0 62px' }}>피치 {tcPitch > 0 ? '+' : ''}{tcPitch}</span>
+                      <input type="range" min={-12} max={12} step={1} value={tcPitch} onChange={(e) => setTcPitch(Number(e.target.value))} style={{ flex: 1 }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                      <span style={{ fontSize: 12, opacity: 0.6, flex: '0 0 62px' }}>음량 {tcVolume}</span>
+                      <input type="range" min={0} max={200} step={5} value={tcVolume} onChange={(e) => setTcVolume(Number(e.target.value))} style={{ flex: 1 }} />
+                    </div>
+                    {(tcTempo !== 1 || tcPitch !== 0 || tcVolume !== 100) && (
+                      <button
+                        style={{ marginTop: 8, background: 'none', border: 'none', color: '#5b93ff', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                        onClick={() => {
+                          setTcTempo(1)
+                          setTcPitch(0)
+                          setTcVolume(100)
+                        }}
+                      >
+                        기본값으로 되돌리기
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              <button
+                style={{ ...smallCta(narrBusy), width: '100%', justifyContent: 'center', marginTop: 14, padding: '11px 0' }}
+                disabled={narrBusy || !narrationText.trim()}
+                onClick={genNarration}
+              >
+                <Music size={15} /> {narrBusy ? '음성 생성 중…' : '나레이션 음성 생성'}
+              </button>
+              {tts === 'typecast' && narrationText.replace(/\s/g, '').length > 2000 && (
+                <p className="igen-note" style={{ marginTop: 8, color: '#e8a64e' }}>
+                  Typecast 는 1회 2,000자 제한 — 대본이 길면 앞부분만 생성됩니다.
+                </p>
+              )}
+              {narrAudio && (
+                <div style={{ marginTop: 14 }}>
+                  <audio
+                    controls
+                    src={`http://127.0.0.1:${port}/media/${narrAudio.path.split(/[\\/]/).pop()}`}
+                    style={{ width: '100%' }}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                    <span style={{ fontSize: 12, opacity: 0.6 }}>{Math.round(narrAudio.durationSec)}초</span>
+                    <button
+                      style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#1d2029', border: '1px solid #2a2e3a', borderRadius: 7, color: '#cfd3dd', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: '5px 11px' }}
+                      onClick={() => window.electronAPI.fs.saveFileAs(narrAudio.path, narrAudio.filename)}
+                    >
+                      mp3 저장
+                    </button>
+                  </div>
+                </div>
+              )}
+              <p className="igen-note" style={{ marginTop: 10 }}>
+                생성된 음성은 갤러리에도 저장됩니다. 엔진별 API 키는 설정에서 입력하세요.
+              </p>
             </div>
           </div>
         )}

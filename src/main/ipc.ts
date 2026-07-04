@@ -11,6 +11,7 @@ import type {
   Project,
   ProjectOptions,
   Scene,
+  TypecastTtsOptions,
   VideoGenSettings,
   MusicGenPayload,
   MusicTrack,
@@ -21,7 +22,7 @@ import { keysStatus, loadKeys, saveKeys } from './secrets'
 import { createPartnersDeeplink } from './services/partners'
 import { generateScript } from './services/script'
 import { generateImage } from './services/image'
-import { generateTts } from './services/tts'
+import { generateTts, synthesizeNarration, typecastVoices, typecastPreview } from './services/tts'
 import { renderVideo } from './services/render'
 import {
   getBridgeInfo,
@@ -196,6 +197,37 @@ export function registerIpc(): void {
   )
   ipcMain.handle(IPC.genTts, (_e, scene: Scene, opts: ProjectOptions, outDir: string) =>
     generateTts(scene, opts, outDir)
+  )
+  // 통합 나레이션 텍스트 → 음성(mp3). 임시 파일 생성 후 갤러리로 import (렌더러가 /media 로 재생).
+  ipcMain.handle(
+    IPC.genNarration,
+    async (
+      _e,
+      text: string,
+      provider: string,
+      voice: string,
+      tcOpts?: TypecastTtsOptions
+    ): Promise<{ path: string; durationSec: number; filename: string }> => {
+      const buf = await synthesizeNarration(String(text || '').trim(), provider, voice || '', tcOpts)
+      const tmp = path.join(app.getPath('temp'), `avs-narration-${Date.now()}.mp3`)
+      await fs.writeFile(tmp, buf)
+      const img = await importLocalFile(tmp, 'other', `narration-${Date.now()}.mp3`)
+      await fs.rm(tmp, { force: true }).catch(() => {})
+      const durationSec = await probeVideo(img.path).then((p) => p.duration).catch(() => 0)
+      return { path: img.path, durationSec, filename: img.filename }
+    }
+  )
+  // Typecast 보이스 목록 (설정의 API 키 사용, 프로세스 수명 동안 캐시)
+  ipcMain.handle(IPC.typecastVoices, () => typecastVoices())
+  // Typecast 보이스 미리듣기 — 짧은 샘플을 합성해 미디어 폴더에 쓰고 /media 파일명 반환
+  ipcMain.handle(
+    IPC.typecastPreview,
+    async (_e, voiceId: string, model: string, language: string): Promise<{ file: string }> => {
+      const buf = await typecastPreview(String(voiceId || ''), String(model || ''), String(language || ''))
+      const file = 'tc-preview.mp3'
+      await fs.writeFile(path.join(getBridgeInfo().dir, file), buf)
+      return { file }
+    }
   )
   ipcMain.handle(IPC.render, (e, project: Project, outDir: string) => {
     const sender = e.sender
