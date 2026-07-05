@@ -100,7 +100,9 @@ const api: ElectronAPI = {
   },
   youtube: {
     search: (opts) => ipcRenderer.invoke(IPC.youtubeSearch, opts),
-    analyzeChannel: (opts) => ipcRenderer.invoke(IPC.youtubeAnalyzeChannel, opts)
+    analyzeChannel: (opts) => ipcRenderer.invoke(IPC.youtubeAnalyzeChannel, opts),
+    transcript: (opts) => ipcRenderer.invoke(IPC.youtubeTranscript, opts),
+    video: (url: string) => ipcRenderer.invoke(IPC.youtubeVideo, url)
   },
   xhs: {
     search: (opts) => ipcRenderer.invoke(IPC.xhsSearch, opts),

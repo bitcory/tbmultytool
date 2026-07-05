@@ -1,5 +1,11 @@
-import type { YoutubeSearchOpts, YoutubeVideo, YoutubeChannelAnalysis, YoutubeChannelOpts } from '@shared/types'
+import type { YoutubeSearchOpts, YoutubeVideo, YoutubeChannelAnalysis, YoutubeChannelOpts, YoutubeTranscriptOpts, YoutubeTranscriptResult, YoutubeTranscriptTrack, YoutubeTranscriptSegment } from '@shared/types'
 import { loadKeys } from '../secrets'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { existsSync, promises as fsp } from 'fs'
+import { join } from 'path'
+import { app } from 'electron'
+import { FFMPEG } from '../ffmpeg'
 
 const API = 'https://www.googleapis.com/youtube/v3'
 
@@ -280,8 +286,33 @@ async function fetchSubs(key: string, channelIds: string[]): Promise<Record<stri
   return subsMap
 }
 
+// 검색어와 채널명이 실제로 같은 채널을 가리키는지 — 공백/대소문자 무시 부분일치
+function nameMatches(query: string, title: string): boolean {
+  const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase()
+  const q = norm(query)
+  const t = norm(title)
+  return !!q && !!t && (t.includes(q) || q.includes(t))
+}
+
+// 키워드 검색이 0건일 때: 검색어가 채널명일 수 있으므로 type=channel 로 찾아 이름이 맞으면 채널ID 반환
+async function findChannelByName(key: string, query: string): Promise<string | null> {
+  const u = new URL(API + '/search')
+  u.searchParams.set('part', 'snippet')
+  u.searchParams.set('type', 'channel')
+  u.searchParams.set('q', query)
+  u.searchParams.set('maxResults', '5')
+  u.searchParams.set('key', key)
+  const j = await getJson(u.toString()).catch(() => null)
+  for (const it of (j && j.items) || []) {
+    const title = (it.snippet && it.snippet.title) || ''
+    // 이름이 실제로 비슷할 때만 채널로 간주 (일반 키워드가 엉뚱한 채널로 빠지는 것 방지)
+    if (nameMatches(query, title)) return (it.id && it.id.channelId) || null
+  }
+  return null
+}
+
 // ── 키워드/채널 검색 ──────────────────────────────────────
-export async function youtubeSearch(opts: YoutubeSearchOpts): Promise<YoutubeVideo[]> {
+export async function youtubeSearch(opts: YoutubeSearchOpts): Promise<{ items: YoutubeVideo[]; channelMode: boolean }> {
   const key = (await loadKeys()).youtube
   if (!key) throw new Error('설정에서 YouTube API 키를 등록하세요.')
   const q = (opts.query || '').trim()
@@ -294,6 +325,7 @@ export async function youtubeSearch(opts: YoutubeSearchOpts): Promise<YoutubeVid
   // 채널 입력이면(URL/@핸들/채널ID) uploads 재생목록으로 그 채널 영상만 (1유닛/페이지)
   const det = detectChannel(q)
   let ids: string[] = []
+  let channelMode = !!det
   if (det) {
     const channelId = await resolveChannelId(key, q)
     if (!channelId) throw new Error('채널을 찾지 못했어요: ' + q + ' (채널 URL / @핸들 / 채널ID 확인)')
@@ -324,12 +356,304 @@ export async function youtubeSearch(opts: YoutubeSearchOpts): Promise<YoutubeVid
       pageToken = j.nextPageToken || ''
       if (!pageToken) break
     }
+    // 키워드 결과 0건 → 채널명일 수 있으니 채널로 해석해 그 채널 영상을 불러온다
+    // (유튜브 키워드 검색은 채널명 + 최근 기간 조합에서 0건을 주는 경우가 많음)
+    if (!ids.length) {
+      const channelId = await findChannelByName(key, q).catch(() => null)
+      if (channelId) {
+        const core = await getChannelCore(key, channelId).catch(() => null)
+        if (core && core.uploads) {
+          ids = await collectUploadIds(key, core.uploads, max, publishedAfter)
+          channelMode = ids.length > 0
+        }
+      }
+    }
   }
-  if (!ids.length) return []
+  if (!ids.length) return { items: [], channelMode }
 
   const vids = await fetchVideos(key, ids)
   const subsMap = await fetchSubs(key, vids.map((v) => v.channelId))
-  return vids.map((v) => toVideo(v, subsMap[v.channelId] ?? 0))
+  return { items: vids.map((v) => toVideo(v, subsMap[v.channelId] ?? 0)), channelMode }
+}
+
+// ── 스크립트(자막) 추출 ─────────────────────────────────────
+// 유튜브 웹플레이어의 '스크립트' 패널과 같은 데이터를 내부 player 엔드포인트로 가져온다.
+// Data API 의 captions.download 는 영상 소유자 OAuth 가 필요해 남의 영상엔 못 쓰므로 이 방식이 표준.
+// API 키/할당량 불필요.
+
+// URL/ID → 11자 영상 ID
+export function parseVideoId(input: string): string | null {
+  const s = (input || '').trim()
+  if (/^[\w-]{11}$/.test(s)) return s
+  const m = s.match(/(?:youtube\.com\/(?:watch\?[^#\s]*v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/i)
+  return m ? m[1] : null
+}
+
+type CaptionTrack = { baseUrl: string; languageCode: string; kind?: string; name?: { simpleText?: string; runs?: { text: string }[] } }
+type PlayerMeta = { title: string; channel: string; tracks: CaptionTrack[] }
+
+// 1차: innertube player 엔드포인트 (ANDROID 클라이언트 — 로그인/키 불필요)
+async function playerMeta(videoId: string): Promise<PlayerMeta | null> {
+  const r = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'user-agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip'
+    },
+    body: JSON.stringify({
+      context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38', androidSdkVersion: 30, hl: 'ko', gl: 'KR' } },
+      videoId
+    })
+  }).catch(() => null)
+  const j = r && r.ok ? await r.json().catch(() => null) : null
+  if (!j) return null
+  const status = j.playabilityStatus && j.playabilityStatus.status
+  if (status && status !== 'OK') {
+    const reason = (j.playabilityStatus && j.playabilityStatus.reason) || status
+    throw new Error('영상을 열 수 없어요: ' + reason)
+  }
+  const vd = j.videoDetails || {}
+  const tracks: CaptionTrack[] = (j.captions && j.captions.playerCaptionsTracklistRenderer && j.captions.playerCaptionsTracklistRenderer.captionTracks) || []
+  return { title: vd.title || '', channel: vd.author || '', tracks }
+}
+
+// 2차 폴백: watch 페이지 HTML에서 captionTracks JSON 을 직접 추출
+async function watchPageMeta(videoId: string): Promise<PlayerMeta | null> {
+  const r = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ko`, {
+    headers: {
+      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0 Safari/537.36',
+      'accept-language': 'ko,en;q=0.8'
+    }
+  }).catch(() => null)
+  const html = r && r.ok ? await r.text().catch(() => '') : ''
+  if (!html) return null
+  const cm = html.match(/"captionTracks":(\[.*?\])(?=,")/)
+  let tracks: CaptionTrack[] = []
+  if (cm) {
+    try {
+      tracks = JSON.parse(cm[1])
+    } catch {
+      tracks = []
+    }
+  }
+  const tm = html.match(/<title>(.*?)<\/title>/)
+  const title = tm ? tm[1].replace(/\s*-\s*YouTube\s*$/, '').trim() : ''
+  const am = html.match(/"author":"((?:[^"\\]|\\.)*)"/)
+  let channel = ''
+  if (am) {
+    try {
+      channel = JSON.parse('"' + am[1] + '"')
+    } catch {
+      channel = am[1]
+    }
+  }
+  return { title, channel, tracks }
+}
+
+function trackName(t: CaptionTrack): string {
+  return (t.name && (t.name.simpleText || (t.name.runs || []).map((r) => r.text).join(''))) || t.languageCode
+}
+
+// 트랙 선택: 요청 언어 → ko → 수동(비 ASR) 첫 트랙 → 첫 트랙
+function pickTrack(tracks: CaptionTrack[], lang?: string): CaptionTrack | null {
+  if (!tracks.length) return null
+  const manualFirst = (arr: CaptionTrack[]) => arr.find((t) => t.kind !== 'asr') || arr[0]
+  if (lang) {
+    const exact = tracks.filter((t) => t.languageCode === lang)
+    if (exact.length) return manualFirst(exact)
+  }
+  const ko = tracks.filter((t) => t.languageCode === 'ko')
+  if (ko.length) return manualFirst(ko)
+  return manualFirst(tracks)
+}
+
+// 자막 트랙 URL → 문장 목록 (json3 이벤트 파싱)
+async function fetchSegments(baseUrl: string): Promise<YoutubeTranscriptSegment[]> {
+  const url = baseUrl + (baseUrl.includes('fmt=') ? '' : '&fmt=json3')
+  const r = await fetch(url, { headers: { 'accept-language': 'ko,en;q=0.8' } })
+  if (r.status === 429) throw new Error('요청이 많아 유튜브가 잠시 제한했어요. 1~2분 후 다시 시도해 주세요.')
+  if (!r.ok) throw new Error('자막 다운로드 실패 (HTTP ' + r.status + ')')
+  const j = await r.json().catch(() => null)
+  const events: any[] = (j && j.events) || []
+  const out: YoutubeTranscriptSegment[] = []
+  for (const ev of events) {
+    if (!ev || !Array.isArray(ev.segs)) continue
+    const text = ev.segs.map((s: any) => (s && s.utf8) || '').join('').replace(/\n/g, ' ').trim()
+    if (!text) continue
+    out.push({ start: Math.round((ev.tStartMs || 0) / 100) / 10, dur: Math.round((ev.dDurationMs || 0) / 100) / 10, text })
+  }
+  return out
+}
+
+// 3차 폴백: yt-dlp (설치되어 있으면). 유튜브가 익명 요청을 봇으로 차단하는 네트워크에서는
+// 크롬 쿠키(--cookies-from-browser chrome)를 빌려 통과한다. 트랙의 서명된 URL 은 이후 일반 fetch 로 다운로드 가능.
+function ytDlpBin(): string | null {
+  const cands = [
+    '/opt/homebrew/bin/yt-dlp',
+    '/usr/local/bin/yt-dlp',
+    '/usr/bin/yt-dlp',
+    join(process.env.HOME || '', '.local/bin/yt-dlp')
+  ]
+  for (const c of cands) if (c && existsSync(c)) return c
+  return null
+}
+
+// 패키징된 GUI 앱은 PATH 가 /usr/bin:/bin 수준이라 yt-dlp 가 JS 런타임(node/deno)을 못 찾고
+// 유튜브 챌린지 해석에 실패한다(포맷 0개 → 추출 실패). 홈브류 등 표준 경로를 PATH 에 보강한다.
+function ytDlpEnv(): NodeJS.ProcessEnv {
+  const extra = ['/opt/homebrew/bin', '/usr/local/bin', join(process.env.HOME || '', '.local/bin')]
+  const cur = (process.env.PATH || '').split(':')
+  return { ...process.env, PATH: [...cur, ...extra.filter((p) => p && !cur.includes(p))].join(':') }
+}
+
+async function ytDlpMeta(videoId: string): Promise<PlayerMeta | null> {
+  const bin = ytDlpBin()
+  if (!bin) return null
+  const url = 'https://www.youtube.com/watch?v=' + videoId
+  const exec = promisify(execFile)
+  const run = async (extra: string[]): Promise<any> => {
+    // --ignore-no-formats-error: 자막 메타만 필요하므로 포맷이 없어도(JS 런타임 부재 등) JSON 을 받는다
+    const { stdout } = await exec(bin, ['--no-warnings', '--skip-download', '--ignore-no-formats-error', '-J', ...extra, url], { maxBuffer: 128 * 1024 * 1024, timeout: 120000, env: ytDlpEnv() })
+    return JSON.parse(stdout)
+  }
+  let j: any = null
+  try {
+    j = await run(['--cookies-from-browser', 'chrome'])
+  } catch {
+    // 크롬 미설치/키체인 거부 등이면 쿠키 없이 한 번 더
+    j = await run([]).catch(() => null)
+  }
+  if (!j) return null
+
+  const manual: Record<string, any[]> = j.subtitles || {}
+  const auto: Record<string, any[]> = j.automatic_captions || {}
+  const json3Url = (entries: any[]): string => {
+    const e = (entries || []).find((x) => x && x.ext === 'json3') || (entries || [])[0]
+    return (e && e.url) || ''
+  }
+  const tracks: CaptionTrack[] = []
+  const seen = new Set<string>()
+  const push = (lang: string, entries: any[], asr: boolean) => {
+    const u = json3Url(entries)
+    if (!u || seen.has(lang)) return
+    seen.add(lang)
+    const label = ((entries || [])[0] && (entries || [])[0].name) || lang
+    tracks.push({ baseUrl: u, languageCode: lang, kind: asr ? 'asr' : undefined, name: { simpleText: asr ? label + ' (자동)' : label } })
+  }
+  for (const [lang, entries] of Object.entries(manual)) push(lang, entries, false)
+  // 자동 자막은 번역본이 100개+ 라 원어(-orig) + 주요 언어만 노출
+  for (const [key, entries] of Object.entries(auto)) if (key.endsWith('-orig')) push(key.replace(/-orig$/, ''), entries, true)
+  for (const lang of ['ko', 'en', 'ja', 'zh-Hans', 'zh-Hant']) if (auto[lang]) push(lang, auto[lang], true)
+  return { title: j.title || '', channel: j.channel || j.uploader || '', tracks }
+}
+
+// 영상별 메타 캐시 — 언어 전환 시 재조회(특히 yt-dlp 수 초) 방지
+const metaCache = new Map<string, PlayerMeta>()
+
+export async function youtubeTranscript(opts: YoutubeTranscriptOpts): Promise<YoutubeTranscriptResult> {
+  const videoId = parseVideoId(opts.url || '')
+  if (!videoId) throw new Error('유튜브 영상 URL이 아니에요. (예: https://www.youtube.com/watch?v=XXXXXXXXXXX)')
+
+  // innertube → watch 페이지 → yt-dlp(크롬 쿠키) 순서로 시도
+  let meta: PlayerMeta | null = metaCache.get(videoId) || null
+  let playerErr = ''
+  if (!meta || !meta.tracks.length) {
+    try {
+      meta = await playerMeta(videoId)
+    } catch (e) {
+      playerErr = e instanceof Error ? e.message : String(e)
+      console.warn('[YT transcript] player 실패:', playerErr)
+    }
+  }
+  if (!meta || !meta.tracks.length) {
+    const fb = await watchPageMeta(videoId).catch(() => null)
+    if (fb && (fb.tracks.length || !meta)) meta = { ...fb, title: fb.title || (meta ? meta.title : ''), channel: fb.channel || (meta ? meta.channel : '') }
+  }
+  if (!meta || !meta.tracks.length) {
+    const dlp = await ytDlpMeta(videoId).catch((e) => {
+      console.warn('[YT transcript] yt-dlp 실패:', e instanceof Error ? e.message : e)
+      return null
+    })
+    if (dlp) meta = dlp
+  }
+  if (!meta) throw new Error('영상 정보를 가져오지 못했어요. 네트워크 상태를 확인해 주세요.' + (playerErr ? ` (${playerErr})` : ''))
+  if (!meta.tracks.length) {
+    // 봇 차단으로 트랙을 못 받은 것인지, 진짜 자막이 없는 것인지 구분해 안내
+    if (playerErr && !ytDlpBin()) throw new Error('유튜브가 요청을 차단했어요. 터미널에서 `brew install yt-dlp` 후 다시 시도해 보세요.')
+    throw new Error('이 영상에는 스크립트(자막)가 없어요.')
+  }
+  metaCache.set(videoId, meta)
+  if (metaCache.size > 20) metaCache.delete(metaCache.keys().next().value as string)
+
+  const track = pickTrack(meta.tracks, opts.lang)
+  if (!track || !track.baseUrl) throw new Error('사용 가능한 자막 트랙을 찾지 못했어요.')
+  const segments = await fetchSegments(track.baseUrl)
+  if (!segments.length) throw new Error('자막 내용이 비어 있어요.')
+
+  const tracks: YoutubeTranscriptTrack[] = meta.tracks.map((t) => ({ lang: t.languageCode, name: trackName(t), auto: t.kind === 'asr' }))
+  return {
+    videoId,
+    title: meta.title,
+    channel: meta.channel,
+    url: 'https://www.youtube.com/watch?v=' + videoId,
+    tracks,
+    lang: track.languageCode,
+    segments
+  }
+}
+
+// ── 영상 로컬 다운로드 (스크립트 분석기 플레이어용) ─────────
+// 임베드 플레이어는 봇 차단 네트워크에서 "로그인하여 봇이 아님을 확인하세요"로 재생이 막히므로,
+// yt-dlp(크롬 쿠키)로 로컬에 받아 브릿지 서버 /media/<file> (Range 지원)로 스트리밍 재생한다.
+// imported/ 폴더에 두지만 index.json 에 등록하지 않으므로 갤러리에는 나타나지 않는다.
+export async function youtubeVideoFile(url: string): Promise<{ file: string }> {
+  const videoId = parseVideoId(url || '')
+  if (!videoId) throw new Error('유튜브 영상 URL이 아니에요.')
+  const dir = join(app.getPath('userData'), 'imported')
+  await fsp.mkdir(dir, { recursive: true })
+  const file = `yt_${videoId}.mp4`
+  const out = join(dir, file)
+  if (existsSync(out)) return { file }
+
+  const bin = ytDlpBin()
+  if (!bin) throw new Error('영상 재생에는 yt-dlp 가 필요해요. 터미널에서 `brew install yt-dlp` 후 다시 시도해 주세요.')
+  const exec = promisify(execFile)
+  const run = (cookies: boolean) =>
+    exec(
+      bin,
+      [
+        '--no-warnings',
+        ...(cookies ? ['--cookies-from-browser', 'chrome'] : []),
+        '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+        '--merge-output-format', 'mp4',
+        '--ffmpeg-location', FFMPEG,
+        '-o', out,
+        'https://www.youtube.com/watch?v=' + videoId
+      ],
+      { timeout: 600000, maxBuffer: 32 * 1024 * 1024, env: ytDlpEnv() }
+    )
+  try {
+    await run(true)
+  } catch (firstErr) {
+    // 크롬 미설치/키체인 거부 등이면 쿠키 없이 한 번 더
+    try {
+      await run(false)
+    } catch {
+      const msg = firstErr instanceof Error ? firstErr.message : String(firstErr)
+      const line = (msg.match(/ERROR:[^\n]*/g) || []).pop() || msg.slice(0, 300)
+      throw new Error('영상 다운로드 실패: ' + line)
+    }
+  }
+  if (!existsSync(out)) throw new Error('영상 다운로드에 실패했어요.')
+
+  // 캐시 정리: 방금 파일 제외 yt_*.mp4 를 오래된 순으로 지워 최근 10개만 유지
+  const names = (await fsp.readdir(dir)).filter((n) => n.startsWith('yt_') && n.endsWith('.mp4') && n !== file)
+  if (names.length > 9) {
+    const stats = await Promise.all(names.map(async (n) => ({ n, t: (await fsp.stat(join(dir, n))).mtimeMs })))
+    stats.sort((a, b) => a.t - b.t)
+    for (const s of stats.slice(0, stats.length - 9)) await fsp.rm(join(dir, s.n), { force: true }).catch(() => {})
+  }
+  return { file }
 }
 
 // ── 채널 상세 분석 (luha-master 등급/수익/참여/업로드 패턴 이식) ──

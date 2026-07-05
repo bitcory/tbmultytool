@@ -43,9 +43,9 @@ import { grabberScript } from './injectGrabber'
 import { deployExtension } from './extensionDeploy'
 import { grokVideoScript } from './automateGrok'
 import { renderScrollVideo } from './services/scrollVideo'
-import { youtubeSearch, analyzeChannel, youtubeQuota } from './services/youtube'
+import { youtubeSearch, analyzeChannel, youtubeQuota, youtubeTranscript, youtubeVideoFile } from './services/youtube'
 import { probeVideo, extractFrame, materializeVideo } from './frames'
-import type { YoutubeSearchOpts, YoutubeChannelOpts, XhsSearchOpts } from '@shared/types'
+import type { YoutubeSearchOpts, YoutubeChannelOpts, YoutubeTranscriptOpts, XhsSearchOpts } from '@shared/types'
 
 // 소스별 임베드 창 추적 (자동화 명령을 보낼 대상)
 const embedded = new Map<ImageSource, BrowserWindow>()
@@ -576,8 +576,8 @@ export function registerIpc(): void {
   // 유튜브 분석기 — YouTube Data API 로 검색 + 통계/구독자 + 지표 계산
   ipcMain.handle(IPC.youtubeSearch, async (_e, opts: YoutubeSearchOpts) => {
     try {
-      const items = await youtubeSearch(opts)
-      return { ok: true, items, quotaUsed: youtubeQuota() }
+      const { items, channelMode } = await youtubeSearch(opts)
+      return { ok: true, items, channelMode, quotaUsed: youtubeQuota() }
     } catch (err) {
       return { ok: false, message: String(err instanceof Error ? err.message : err) }
     }
@@ -588,6 +588,26 @@ export function registerIpc(): void {
     try {
       const analysis = await analyzeChannel(opts)
       return { ok: true, analysis }
+    } catch (err) {
+      return { ok: false, message: String(err instanceof Error ? err.message : err) }
+    }
+  })
+
+  // 유튜브 스크립트(자막) 추출 — API 키/할당량 불필요
+  ipcMain.handle(IPC.youtubeTranscript, async (_e, opts: YoutubeTranscriptOpts) => {
+    try {
+      const result = await youtubeTranscript(opts)
+      return { ok: true, result }
+    } catch (err) {
+      return { ok: false, message: String(err instanceof Error ? err.message : err) }
+    }
+  })
+
+  // 스크립트 분석기 플레이어용 영상 다운로드 (yt-dlp → /media/<file> 스트리밍)
+  ipcMain.handle(IPC.youtubeVideo, async (_e, url: string) => {
+    try {
+      const { file } = await youtubeVideoFile(url)
+      return { ok: true, file }
     } catch (err) {
       return { ok: false, message: String(err instanceof Error ? err.message : err) }
     }

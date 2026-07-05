@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Home as HomeIcon, ChevronRight, Film, Video, Music, Wand2, LayoutGrid, GalleryHorizontalEnd, ScrollText, Settings as SettingsIcon, PenLine, Scissors, ImageIcon, ShoppingBag, TrendingUp } from 'lucide-react'
+import { Home as HomeIcon, ChevronRight, Film, Video, Music, Wand2, LayoutGrid, GalleryHorizontalEnd, ScrollText, Settings as SettingsIcon, PenLine, Scissors, ImageIcon, ShoppingBag, TrendingUp, FileText } from 'lucide-react'
 import { useStore, type View } from './store'
 import Home from './pages/Home'
 import ShoppingShorts from './pages/ShoppingShorts'
 import YoutubeAnalyzer from './pages/YoutubeAnalyzer'
+import ScriptAnalyzer from './pages/ScriptAnalyzer'
 import SourceFinder from './pages/SourceFinder'
 import Wizard from './pages/Wizard'
 import CardNews from './pages/CardNews'
@@ -42,6 +43,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     title: '도구',
     items: [
       { id: 'youtube', label: '유튜브 분석', Icon: TrendingUp },
+      { id: 'scriptanalyzer', label: '스크립트 분석기', Icon: FileText },
       { id: 'sourcefinder', label: '소스 찾기', Icon: Film },
       { id: 'imageedit', label: '이미지 편집', Icon: ImageIcon },
       { id: 'frames', label: '프레임 추출', Icon: Scissors }
@@ -109,13 +111,15 @@ export default function App() {
           </div>
         </div>
       </aside>
-      <main className={`main ${['wizard', 'cardnews', 'shoppingshorts', 'youtube', 'blog', 'sourcefinder'].includes(view) ? 'flush' : ''}`}>
+      <main className={`main ${['wizard', 'cardnews', 'shoppingshorts', 'youtube', 'scriptanalyzer', 'blog', 'sourcefinder'].includes(view) ? 'flush' : ''}`}>
         {view === 'home' ? (
           <Home />
         ) : view === 'shoppingshorts' ? (
           <ShoppingShorts />
         ) : view === 'youtube' ? (
           <YoutubeAnalyzer />
+        ) : view === 'scriptanalyzer' ? (
+          <ScriptAnalyzer />
         ) : view === 'sourcefinder' ? (
           <SourceFinder />
         ) : view === 'imagegen' ? (

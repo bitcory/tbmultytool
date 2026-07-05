@@ -56,6 +56,11 @@ app.whenReady().then(async () => {
   registerIpc()
   createWindow()
 
+  // 키 저장소 상태 진단 로그 (값은 남기지 않음) — safeStorage/키체인 접근 문제 추적용
+  import('./secrets')
+    .then(async (s) => console.log('[keys] userData=' + app.getPath('userData'), 'status=' + JSON.stringify(await s.keysStatus())))
+    .catch((e) => console.warn('[keys] 상태 확인 실패:', e))
+
   // 번들된 크롬 확장을 고정 폴더에 배포(업데이트 시 자동 갱신)
   deployExtension().catch((e) => console.warn('[extDeploy] 시작 실패:', e))
 

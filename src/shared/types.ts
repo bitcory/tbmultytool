@@ -125,6 +125,37 @@ export interface YoutubeChannelOpts {
   max?: number // 분석할 최근 영상 수 (기본 50)
 }
 
+/** 스크립트(자막) 추출 요청 — API 키/할당량 불필요 */
+export interface YoutubeTranscriptOpts {
+  url: string // 영상 URL(watch?v=/youtu.be/shorts) 또는 11자 영상ID
+  lang?: string // 원하는 자막 언어코드 (미지정 시 ko → 원어 순)
+}
+
+/** 자막 트랙 1개 (언어 선택용) */
+export interface YoutubeTranscriptTrack {
+  lang: string // 언어코드 (ko, en …)
+  name: string // 표시명 (한국어(자동 생성됨) 등)
+  auto: boolean // 자동 생성(ASR) 여부
+}
+
+/** 자막 문장 1건 */
+export interface YoutubeTranscriptSegment {
+  start: number // 시작 시각(초)
+  dur: number // 길이(초)
+  text: string
+}
+
+/** 스크립트 추출 결과 */
+export interface YoutubeTranscriptResult {
+  videoId: string
+  title: string
+  channel: string
+  url: string
+  tracks: YoutubeTranscriptTrack[] // 사용 가능한 자막 언어 목록
+  lang: string // 실제 사용된 트랙 언어코드
+  segments: YoutubeTranscriptSegment[]
+}
+
 /** 화면비 */
 export type AspectRatio = '16:9' | '9:16' | '1:1'
 
@@ -417,6 +448,8 @@ export const IPC = {
   productImported: 'bridge:productImported', // 이벤트 채널 (확장→앱 쿠팡 상품정보 도착)
   youtubeSearch: 'youtube:search', // 유튜브 분석기 검색
   youtubeAnalyzeChannel: 'youtube:analyzeChannel', // 채널 상세 분석
+  youtubeTranscript: 'youtube:transcript', // 스크립트(자막) 추출
+  youtubeVideo: 'youtube:video', // 스크립트 분석기 플레이어용 영상 로컬 다운로드
   xhsSearch: 'xhs:search', // 샤오홍슈 검색(브라우저 확장에 작업 전달)
   xhsDownload: 'xhs:download', // 샤오홍슈 노트 미디어 다운로드
   xhsResults: 'xhs:results' // 이벤트 채널 (확장→앱 검색결과 도착)
@@ -564,8 +597,13 @@ export interface ElectronAPI {
   onProgress: (cb: (e: ProgressEvent) => void) => () => void
   /** 유튜브 분석기 */
   youtube: {
-    search: (opts: YoutubeSearchOpts) => Promise<{ ok: boolean; items?: YoutubeVideo[]; quotaUsed?: number; message?: string }>
+    /** channelMode: 입력이 채널(URL/@핸들/채널명)로 해석되어 그 채널 영상 목록을 반환했는지 */
+    search: (opts: YoutubeSearchOpts) => Promise<{ ok: boolean; items?: YoutubeVideo[]; channelMode?: boolean; quotaUsed?: number; message?: string }>
     analyzeChannel: (opts: YoutubeChannelOpts) => Promise<{ ok: boolean; analysis?: YoutubeChannelAnalysis; message?: string }>
+    /** 영상 URL → 스크립트(자막) 추출. API 키/할당량 불필요 */
+    transcript: (opts: YoutubeTranscriptOpts) => Promise<{ ok: boolean; result?: YoutubeTranscriptResult; message?: string }>
+    /** 영상 URL → 로컬 캐시 다운로드(yt-dlp). 반환된 file 은 브릿지 /media/<file> 로 재생 */
+    video: (url: string) => Promise<{ ok: boolean; file?: string; message?: string }>
   }
   xhs: {
     /** 검색 작업을 확장에 전달(크롬 샤오홍슈에서 스크래핑). 결과는 onResults 로 도착 */

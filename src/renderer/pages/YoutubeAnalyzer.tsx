@@ -93,10 +93,13 @@ export default function YoutubeAnalyzer() {
       setMsg(r.message || '검색 실패 (설정에서 YouTube API 키 확인)')
       return
     }
-    setSearchedChannel(asChannel)
+    // 채널명이 키워드로 들어와도 백엔드가 채널로 해석했으면 채널 모드로 표시(필터 미적용)
+    const isChannelResult = r.channelMode ?? asChannel
+    setSearchedChannel(isChannelResult)
     setItems(r.items || [])
     if (r.quotaUsed != null) setQuota(r.quotaUsed)
-    setMsg(`${asChannel ? '채널 영상' : '결과'} ${(r.items || []).length}개 수집`)
+    const n = (r.items || []).length
+    setMsg(n === 0 ? '수집 0개 — 기간을 늘리거나(예: 1년) 다른 검색어로 시도해보세요' : `${isChannelResult ? '채널 영상' : '결과'} ${n}개 수집`)
   }
 
   // 채널명 클릭 → 그 채널 영상만 아래 목록으로 불러오기 (채널ID 우선)
@@ -259,7 +262,7 @@ export default function YoutubeAnalyzer() {
         {/* 1행: 검색 + 수집 옵션 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: '1 1 280px', maxWidth: 460 }}>
-            <input style={{ ...selC, flex: 1, padding: '8px 10px', fontSize: 13 }} placeholder="키워드 또는 채널 URL/@핸들" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} />
+            <input style={{ ...selC, flex: 1, padding: '8px 10px', fontSize: 13 }} placeholder="키워드 · 채널명 · 채널 URL/@핸들" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} />
             <button onClick={() => search()} disabled={loading} className="yt-btn" style={{ flex: '0 0 auto', padding: '8px 16px', borderRadius: 7, border: 'none', cursor: 'pointer', background: 'linear-gradient(180deg,#5b93ff,#346aff)', color: '#fff', fontWeight: 800, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               {loading ? <Loader2 size={15} className="igen-spin" /> : <Search size={15} />} 검색
             </button>
